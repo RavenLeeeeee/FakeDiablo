@@ -15,6 +15,11 @@ Saved/
 *.user
 *.userosscache
 *.sln.docstates
+*.code-workspace
+.vsconfig
+
+# Codex local config
+.codex/
 
 # Build and debug files
 *.log
@@ -30,6 +35,12 @@ Saved/
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 Plugins/*/Saved/
+
+# Upgrade logs
+UpgradeLog.htm
+
+# Wrong ignore file
+.ignore
 
 # OS files
 .DS_Store
