@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ARPGPlayerController.h"
+#include "ARPGEnemyBase.h"
 #include "ARPGPlayerCharacter.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/HitResult.h"
@@ -233,6 +234,7 @@ void AARPGPlayerController::UpdateActionInput()
 	if (bIsBasicAttackPressed && !bWasBasicAttackPressed)
 	{
 		ARPGCharacter->BasicAttack();
+		PerformBasicAttack();
 	}
 	bWasBasicAttackPressed = bIsBasicAttackPressed;
 
@@ -242,6 +244,86 @@ void AARPGPlayerController::UpdateActionInput()
 		ARPGCharacter->Dodge();
 	}
 	bWasDodgePressed = bIsDodgePressed;
+}
+
+void AARPGPlayerController::PerformBasicAttack()
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		UE_LOG(LogMyGame, Log, TEXT("BasicAttack missed"));
+		return;
+	}
+
+	const FVector AttackDirection = GetBasicAttackDirection(ARPGCharacter);
+	const FVector PlayerLocation = ARPGCharacter->GetActorLocation();
+	const FVector Start = PlayerLocation + (AttackDirection * 60.f);
+	const FVector End = PlayerLocation + (AttackDirection * BasicAttackRange);
+	const FCollisionShape AttackShape = FCollisionShape::MakeSphere(BasicAttackRadius);
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ARPGBasicAttackSweep), false);
+	QueryParams.AddIgnoredActor(ARPGCharacter);
+
+	TArray<FHitResult> HitResults;
+	const bool bHit = GetWorld()->SweepMultiByChannel(HitResults, Start, End, FQuat::Identity, ECC_Pawn, AttackShape, QueryParams);
+
+	DrawDebugLine(GetWorld(), Start, End, FColor::Red, false, 1.f, 0, 2.f);
+	DrawDebugSphere(GetWorld(), Start, BasicAttackRadius, 16, FColor::Red, false, 1.f);
+	DrawDebugSphere(GetWorld(), End, BasicAttackRadius, 16, FColor::Red, false, 1.f);
+
+	TSet<AARPGEnemyBase*> HitEnemies;
+	if (bHit)
+	{
+		for (const FHitResult& HitResult : HitResults)
+		{
+			AARPGEnemyBase* Enemy = Cast<AARPGEnemyBase>(HitResult.GetActor());
+			if (!Enemy || HitEnemies.Contains(Enemy))
+			{
+				continue;
+			}
+
+			HitEnemies.Add(Enemy);
+			UE_LOG(LogMyGame, Log, TEXT("BasicAttack hit enemy: %s"), *Enemy->GetName());
+			Enemy->ApplyDamageToEnemy(BasicAttackDamage);
+		}
+	}
+
+	if (HitEnemies.Num() == 0)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("BasicAttack missed"));
+	}
+}
+
+FVector AARPGPlayerController::GetBasicAttackDirection(const AARPGPlayerCharacter* ARPGCharacter) const
+{
+	if (!ARPGCharacter)
+	{
+		return FVector::ForwardVector;
+	}
+
+	FVector WorldOrigin;
+	FVector WorldDirection;
+	if (DeprojectMousePositionToWorld(WorldOrigin, WorldDirection))
+	{
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ARPGBasicAttackMouseTrace), false);
+		QueryParams.AddIgnoredActor(GetPawn());
+
+		FHitResult HitResult;
+		const FVector TraceEnd = WorldOrigin + (WorldDirection * 100000.f);
+		if (GetWorld() && GetWorld()->LineTraceSingleByChannel(HitResult, WorldOrigin, TraceEnd, ECC_Visibility, QueryParams))
+		{
+			FVector AttackDirection = HitResult.ImpactPoint - ARPGCharacter->GetActorLocation();
+			AttackDirection.Z = 0.f;
+			if (!AttackDirection.IsNearlyZero())
+			{
+				return AttackDirection.GetSafeNormal();
+			}
+		}
+	}
+
+	FVector ForwardDirection = ARPGCharacter->GetActorForwardVector();
+	ForwardDirection.Z = 0.f;
+	return ForwardDirection.IsNearlyZero() ? FVector::ForwardVector : ForwardDirection.GetSafeNormal();
 }
 
 bool AARPGPlayerController::GetCursorWorldHit(FHitResult& OutHitResult)

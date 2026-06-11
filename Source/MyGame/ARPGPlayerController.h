@@ -32,6 +32,8 @@ private:
 	void SmoothFaceDirection(const FVector& Direction, float DeltaTime);
 	void UpdateMouseFacing(float DeltaTime);
 	void UpdateActionInput();
+	void PerformBasicAttack();
+	FVector GetBasicAttackDirection(const AARPGPlayerCharacter* ARPGCharacter) const;
 	bool GetCursorWorldHit(FHitResult& OutHitResult);
 
 	AARPGPlayerCharacter* GetARPGCharacter() const;
@@ -40,6 +42,9 @@ private:
 	bool bHasClickMoveTarget = false;
 	float ClickMoveAcceptanceRadius = 35.f;
 	float FacingInterpSpeed = 12.f;
+	float BasicAttackRange = 220.f;
+	float BasicAttackRadius = 80.f;
+	float BasicAttackDamage = 25.f;
 	uint64 LastHandledLeftClickFrame = 0;
 
 	bool bWasBasicAttackPressed = false;
