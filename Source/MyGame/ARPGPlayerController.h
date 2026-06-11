@@ -29,6 +29,7 @@ private:
 	void HandleLeftClickPressed();
 	void UpdateClickMoveMovement();
 	void StopARPGCharacterMovement();
+	void FaceDirection(const FVector& Direction);
 	void UpdateMouseFacing();
 	void UpdateActionInput();
 	bool GetCursorWorldHit(FHitResult& OutHitResult);
@@ -38,6 +39,7 @@ private:
 	FVector ClickMoveTarget = FVector::ZeroVector;
 	bool bHasClickMoveTarget = false;
 	float ClickMoveAcceptanceRadius = 80.f;
+	uint64 LastHandledLeftClickFrame = 0;
 
 	bool bWasBasicAttackPressed = false;
 	bool bWasDodgePressed = false;

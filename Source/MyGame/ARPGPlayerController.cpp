@@ -24,6 +24,7 @@ void AARPGPlayerController::BeginPlay()
 	bEnableMouseOverEvents = true;
 
 	FInputModeGameOnly InputMode;
+	InputMode.SetConsumeCaptureMouseDown(false);
 	SetInputMode(InputMode);
 }
 
@@ -40,21 +41,32 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	const FVector2D KeyboardMovementInput = GetKeyboardMovementInput();
-
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
+	{
+		HandleLeftClickPressed();
+	}
+
+	if (!ARPGCharacter)
+	{
+		UpdateActionInput();
+		return;
+	}
+
+	const FVector2D KeyboardMovementInput = GetKeyboardMovementInput();
 	if (ARPGCharacter && !KeyboardMovementInput.IsNearlyZero())
 	{
 		if (bHasClickMoveTarget)
 		{
 			bHasClickMoveTarget = false;
 			StopARPGCharacterMovement();
+			UE_LOG(LogTemp, Warning, TEXT("[ClickMove] Cancelled by WASD"));
 		}
 
-		const FVector WASDDirection(KeyboardMovementInput.X, KeyboardMovementInput.Y, 0.f);
-		ARPGCharacter->AddMovementInput(WASDDirection.GetSafeNormal(), 1.f);
+		const FVector WASDDirection = FVector(KeyboardMovementInput.X, KeyboardMovementInput.Y, 0.f).GetSafeNormal();
+		ARPGCharacter->AddMovementInput(WASDDirection, 1.f);
+		FaceDirection(WASDDirection);
 
-		UpdateMouseFacing();
 		UpdateActionInput();
 		return;
 	}
@@ -62,6 +74,8 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	if (bHasClickMoveTarget)
 	{
 		UpdateClickMoveMovement();
+		UpdateActionInput();
+		return;
 	}
 
 	UpdateMouseFacing();
@@ -94,11 +108,19 @@ FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 
 void AARPGPlayerController::HandleLeftClickPressed()
 {
+	if (LastHandledLeftClickFrame == GFrameCounter)
+	{
+		return;
+	}
+	LastHandledLeftClickFrame = GFrameCounter;
+
+	UE_LOG(LogTemp, Warning, TEXT("[ClickMove] Pressed frame=%llu"), static_cast<unsigned long long>(GFrameCounter));
+
 	FVector WorldOrigin;
 	FVector WorldDirection;
 	if (!DeprojectMousePositionToWorld(WorldOrigin, WorldDirection))
 	{
-		UE_LOG(LogMyGame, Warning, TEXT("ClickMove hit failed"));
+		UE_LOG(LogTemp, Warning, TEXT("[ClickMove] ClickMove hit failed"));
 		return;
 	}
 
@@ -111,11 +133,11 @@ void AARPGPlayerController::HandleLeftClickPressed()
 	{
 		ClickMoveTarget = HitResult.ImpactPoint;
 		bHasClickMoveTarget = true;
-		UE_LOG(LogMyGame, Log, TEXT("ClickMove target updated: %s"), *ClickMoveTarget.ToString());
+		UE_LOG(LogTemp, Warning, TEXT("[ClickMove] Target refreshed: %s"), *ClickMoveTarget.ToString());
 		return;
 	}
 
-	UE_LOG(LogMyGame, Warning, TEXT("ClickMove hit failed"));
+	UE_LOG(LogTemp, Warning, TEXT("[ClickMove] ClickMove hit failed"));
 }
 
 void AARPGPlayerController::UpdateClickMoveMovement()
@@ -135,11 +157,13 @@ void AARPGPlayerController::UpdateClickMoveMovement()
 	{
 		bHasClickMoveTarget = false;
 		StopARPGCharacterMovement();
-		UE_LOG(LogMyGame, Log, TEXT("ClickMove arrived"));
+		UE_LOG(LogTemp, Warning, TEXT("[ClickMove] Arrived"));
 		return;
 	}
 
-	ARPGCharacter->AddMovementInput(Direction.GetSafeNormal(), 1.f);
+	const FVector MoveDirection = Direction.GetSafeNormal();
+	ARPGCharacter->AddMovementInput(MoveDirection, 1.f);
+	FaceDirection(MoveDirection);
 }
 
 void AARPGPlayerController::StopARPGCharacterMovement()
@@ -151,6 +175,24 @@ void AARPGPlayerController::StopARPGCharacterMovement()
 			MovementComponent->StopMovementImmediately();
 		}
 	}
+}
+
+void AARPGPlayerController::FaceDirection(const FVector& Direction)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter)
+	{
+		return;
+	}
+
+	FVector FlatDirection(Direction.X, Direction.Y, 0.f);
+	if (FlatDirection.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FRotator NewRotation = FlatDirection.Rotation();
+	ARPGCharacter->SetActorRotation(FRotator(0.f, NewRotation.Yaw, 0.f));
 }
 
 void AARPGPlayerController::UpdateMouseFacing()
