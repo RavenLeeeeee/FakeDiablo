@@ -16,6 +16,9 @@ class MYGAME_API AARPGEnemyBase : public ACharacter
 public:
 	AARPGEnemyBase();
 
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaTime) override;
+
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	void ApplyDamageToEnemy(float DamageAmount);
 
@@ -29,6 +32,9 @@ public:
 	bool IsDead() const { return bIsDead; }
 
 protected:
+	void UpdateSimpleAI(float DeltaTime);
+	void TryAttackPlayer(AActor* PlayerActor);
+	void FaceDirection(const FVector& Direction, float DeltaTime);
 	void PlayHitFeedback();
 	void Die();
 
@@ -44,5 +50,27 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Death")
 	float CorpseLifeSpan = 10.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	bool bEnableSimpleAI = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float AggroRange = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float AttackRange = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyMoveSpeed = 350.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyAttackDamage = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyAttackCooldown = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyFacingInterpSpeed = 8.f;
+
 	bool bIsDead = false;
+	float LastEnemyAttackTime = -999.f;
 };

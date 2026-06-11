@@ -7,6 +7,7 @@
 #include "ARPGPlayerCharacter.generated.h"
 
 class UCameraComponent;
+class UARPGHealthComponent;
 class USpringArmComponent;
 
 /**
@@ -36,7 +37,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UCameraComponent* TopDownCamera;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	UARPGHealthComponent* HealthComponent;
+
 public:
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE UCameraComponent* GetTopDownCamera() const { return TopDownCamera; }
+	FORCEINLINE UARPGHealthComponent* GetHealthComponent() const { return HealthComponent; }
 };
