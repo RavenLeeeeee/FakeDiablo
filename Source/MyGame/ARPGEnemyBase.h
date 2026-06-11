@@ -25,9 +25,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	UARPGHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	bool IsDead() const { return bIsDead; }
+
 protected:
+	void PlayHitFeedback();
 	void Die();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UARPGHealthComponent* HealthComponent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Death")
+	FRotator DeathMeshRotationOffset = FRotator(0.f, 0.f, 90.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Death")
+	FVector DeathMeshLocationOffset = FVector(0.f, 0.f, 0.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Death")
+	float CorpseLifeSpan = 10.f;
+
+	bool bIsDead = false;
 };

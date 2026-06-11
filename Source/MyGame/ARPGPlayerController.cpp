@@ -44,15 +44,29 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
-	if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
-	{
-		HandleLeftClickPressed();
-	}
-
 	if (!ARPGCharacter)
 	{
 		UpdateActionInput();
 		return;
+	}
+
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (bIsBasicAttackLocked)
+	{
+		UpdateActionInput();
+
+		if (CurrentTime >= BasicAttackLockEndTime)
+		{
+			bIsBasicAttackLocked = false;
+			UE_LOG(LogMyGame, Log, TEXT("BasicAttack movement lock ended"));
+		}
+
+		return;
+	}
+
+	if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
+	{
+		HandleLeftClickPressed();
 	}
 
 	const FVector2D KeyboardMovementInput = GetKeyboardMovementInput();
@@ -233,8 +247,22 @@ void AARPGPlayerController::UpdateActionInput()
 	const bool bIsBasicAttackPressed = IsInputKeyDown(EKeys::RightMouseButton);
 	if (bIsBasicAttackPressed && !bWasBasicAttackPressed)
 	{
-		ARPGCharacter->BasicAttack();
-		PerformBasicAttack();
+		const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+		if (CurrentTime - LastBasicAttackTime < BasicAttackCooldown)
+		{
+			UE_LOG(LogMyGame, Log, TEXT("BasicAttack on cooldown"));
+		}
+		else
+		{
+			LastBasicAttackTime = CurrentTime;
+			bHasClickMoveTarget = false;
+			ClickMoveTarget = FVector::ZeroVector;
+			StopARPGCharacterMovement();
+			bIsBasicAttackLocked = true;
+			BasicAttackLockEndTime = CurrentTime + BasicAttackLockDuration;
+			ARPGCharacter->BasicAttack();
+			PerformBasicAttack();
+		}
 	}
 	bWasBasicAttackPressed = bIsBasicAttackPressed;
 
@@ -256,6 +284,8 @@ void AARPGPlayerController::PerformBasicAttack()
 	}
 
 	const FVector AttackDirection = GetBasicAttackDirection(ARPGCharacter);
+	SmoothFaceDirection(AttackDirection, 0.1f);
+
 	const FVector PlayerLocation = ARPGCharacter->GetActorLocation();
 	const FVector Start = PlayerLocation + (AttackDirection * 60.f);
 	const FVector End = PlayerLocation + (AttackDirection * BasicAttackRange);
@@ -277,12 +307,13 @@ void AARPGPlayerController::PerformBasicAttack()
 		for (const FHitResult& HitResult : HitResults)
 		{
 			AARPGEnemyBase* Enemy = Cast<AARPGEnemyBase>(HitResult.GetActor());
-			if (!Enemy || HitEnemies.Contains(Enemy))
+			if (!Enemy || Enemy->IsDead() || HitEnemies.Contains(Enemy))
 			{
 				continue;
 			}
 
 			HitEnemies.Add(Enemy);
+			DrawDebugSphere(GetWorld(), HitResult.ImpactPoint, 24.f, 12, FColor::Yellow, false, 1.f);
 			UE_LOG(LogMyGame, Log, TEXT("BasicAttack hit enemy: %s"), *Enemy->GetName());
 			Enemy->ApplyDamageToEnemy(BasicAttackDamage);
 		}

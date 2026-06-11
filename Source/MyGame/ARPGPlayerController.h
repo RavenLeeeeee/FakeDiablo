@@ -45,8 +45,13 @@ private:
 	float BasicAttackRange = 220.f;
 	float BasicAttackRadius = 80.f;
 	float BasicAttackDamage = 25.f;
+	float BasicAttackCooldown = 0.6f;
+	float BasicAttackLockDuration = 0.35f;
+	float LastBasicAttackTime = -1000.f;
+	float BasicAttackLockEndTime = 0.f;
 	uint64 LastHandledLeftClickFrame = 0;
 
+	bool bIsBasicAttackLocked = false;
 	bool bWasBasicAttackPressed = false;
 	bool bWasDodgePressed = false;
 };

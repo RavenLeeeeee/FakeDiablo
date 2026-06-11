@@ -2,6 +2,9 @@
 
 #include "ARPGEnemyBase.h"
 #include "ARPGHealthComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "MyGame.h"
 
@@ -24,12 +27,13 @@ void AARPGEnemyBase::ApplyDamageToEnemy(float DamageAmount)
 
 void AARPGEnemyBase::ReceiveAttackHit(float DamageAmount)
 {
-	if (!HealthComponent || HealthComponent->IsDead())
+	if (bIsDead || !HealthComponent || HealthComponent->IsDead())
 	{
 		return;
 	}
 
-	UE_LOG(LogMyGame, Log, TEXT("%s received hit for %.1f damage"), *GetName(), DamageAmount);
+	UE_LOG(LogMyGame, Log, TEXT("Enemy hit: %s for %.1f damage"), *GetName(), DamageAmount);
+	PlayHitFeedback();
 	HealthComponent->ApplyDamage(DamageAmount);
 
 	if (HealthComponent->IsDead())
@@ -38,10 +42,41 @@ void AARPGEnemyBase::ReceiveAttackHit(float DamageAmount)
 	}
 }
 
+void AARPGEnemyBase::PlayHitFeedback()
+{
+	if (GetWorld())
+	{
+		DrawDebugSphere(GetWorld(), GetActorLocation() + FVector(0.f, 0.f, 80.f), 40.f, 16, FColor::Orange, false, 1.f);
+	}
+}
+
 void AARPGEnemyBase::Die()
 {
+	if (bIsDead)
+	{
+		return;
+	}
+
+	bIsDead = true;
 	UE_LOG(LogMyGame, Log, TEXT("Enemy died: %s"), *GetName());
 
-	SetActorEnableCollision(false);
-	SetActorHiddenInGame(true);
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+		MovementComponent->DisableMovement();
+	}
+
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	if (USkeletalMeshComponent* MeshComponent = GetMesh())
+	{
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		MeshComponent->SetRelativeRotation(MeshComponent->GetRelativeRotation() + DeathMeshRotationOffset);
+		MeshComponent->AddLocalOffset(DeathMeshLocationOffset);
+	}
+
+	SetLifeSpan(CorpseLifeSpan);
 }
