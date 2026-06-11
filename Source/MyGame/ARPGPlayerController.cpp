@@ -45,9 +45,14 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (ARPGCharacter && !KeyboardMovementInput.IsNearlyZero())
 	{
-		bHasClickMoveTarget = false;
-		StopARPGCharacterMovement();
-		ARPGCharacter->MoveInWorldDirection(KeyboardMovementInput.GetSafeNormal());
+		if (bHasClickMoveTarget)
+		{
+			bHasClickMoveTarget = false;
+			StopARPGCharacterMovement();
+		}
+
+		const FVector WASDDirection(KeyboardMovementInput.X, KeyboardMovementInput.Y, 0.f);
+		ARPGCharacter->AddMovementInput(WASDDirection.GetSafeNormal(), 1.f);
 
 		UpdateMouseFacing();
 		UpdateActionInput();
@@ -130,10 +135,11 @@ void AARPGPlayerController::UpdateClickMoveMovement()
 	{
 		bHasClickMoveTarget = false;
 		StopARPGCharacterMovement();
+		UE_LOG(LogMyGame, Log, TEXT("ClickMove arrived"));
 		return;
 	}
 
-	ARPGCharacter->MoveInWorldDirection(FVector2D(Direction.X, Direction.Y).GetSafeNormal());
+	ARPGCharacter->AddMovementInput(Direction.GetSafeNormal(), 1.f);
 }
 
 void AARPGPlayerController::StopARPGCharacterMovement()
