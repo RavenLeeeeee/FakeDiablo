@@ -71,6 +71,31 @@ void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
 		return;
 	}
 
+	if (bIsPreparingAttack)
+	{
+		AActor* FacingTarget = PendingAttackTarget.IsValid() ? PendingAttackTarget.Get() : PlayerPawn;
+		if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+		{
+			MovementComponent->StopMovementImmediately();
+		}
+
+		if (FacingTarget)
+		{
+			FVector FacingDirection = FacingTarget->GetActorLocation() - GetActorLocation();
+			FacingDirection.Z = 0.f;
+			FaceDirection(FacingDirection, DeltaTime);
+		}
+
+		DrawEnemyAttackRangeDebug(0.05f);
+
+		if (GetWorld()->GetTimeSeconds() >= EnemyAttackResolveTime)
+		{
+			ResolveEnemyAttack();
+		}
+
+		return;
+	}
+
 	FVector EnemyLocation = GetActorLocation();
 	FVector PlayerLocation = PlayerPawn->GetActorLocation();
 	EnemyLocation.Z = 0.f;
@@ -103,12 +128,16 @@ void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
 	}
 
 	FaceDirection(MoveDirection, DeltaTime);
-	TryAttackPlayer(PlayerPawn);
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastEnemyAttackTime >= EnemyAttackCooldown)
+	{
+		StartEnemyAttack(PlayerPawn, DeltaTime);
+	}
 }
 
-void AARPGEnemyBase::TryAttackPlayer(AActor* PlayerActor)
+void AARPGEnemyBase::StartEnemyAttack(AActor* TargetActor, float DeltaTime)
 {
-	if (bIsDead || !PlayerActor || !GetWorld())
+	if (bIsDead || bIsPreparingAttack || !TargetActor || !GetWorld())
 	{
 		return;
 	}
@@ -119,20 +148,81 @@ void AARPGEnemyBase::TryAttackPlayer(AActor* PlayerActor)
 		return;
 	}
 
-	UARPGHealthComponent* PlayerHealthComponent = PlayerActor->FindComponentByClass<UARPGHealthComponent>();
-	if (!PlayerHealthComponent || PlayerHealthComponent->IsDead())
+	LastEnemyAttackTime = CurrentTime;
+	bIsPreparingAttack = true;
+	PendingAttackTarget = TargetActor;
+	EnemyAttackResolveTime = CurrentTime + EnemyAttackWindup;
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FVector AttackDirection = TargetActor->GetActorLocation() - GetActorLocation();
+	AttackDirection.Z = 0.f;
+	FaceDirection(AttackDirection, DeltaTime);
+
+	UE_LOG(LogMyGame, Log, TEXT("Enemy attack windup started: %s"), *GetName());
+	DrawEnemyAttackRangeDebug(EnemyAttackDebugDuration);
+}
+
+void AARPGEnemyBase::ResolveEnemyAttack()
+{
+	if (bIsDead)
+	{
+		bIsPreparingAttack = false;
+		PendingAttackTarget = nullptr;
+		return;
+	}
+
+	bIsPreparingAttack = false;
+
+	AActor* TargetActor = PendingAttackTarget.Get();
+	PendingAttackTarget = nullptr;
+	if (!TargetActor)
 	{
 		return;
 	}
 
-	LastEnemyAttackTime = CurrentTime;
-	UE_LOG(LogMyGame, Log, TEXT("Enemy attack player: %s"), *GetName());
+	FVector EnemyLocation = GetActorLocation();
+	FVector TargetLocation = TargetActor->GetActorLocation();
+	EnemyLocation.Z = 0.f;
+	TargetLocation.Z = 0.f;
+
+	const float DistanceToTarget = FVector::Dist2D(EnemyLocation, TargetLocation);
+	FVector AttackDirection = TargetLocation - EnemyLocation;
+	AttackDirection.Z = 0.f;
+	FaceDirection(AttackDirection, 0.1f);
+
+	if (DistanceToTarget > AttackRange + 30.f)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Enemy attack missed: %s"), *GetName());
+		return;
+	}
+
+	UARPGHealthComponent* PlayerHealthComponent = TargetActor->FindComponentByClass<UARPGHealthComponent>();
+	if (!PlayerHealthComponent || PlayerHealthComponent->IsDead())
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Enemy attack missed: %s"), *GetName());
+		return;
+	}
 
 	PlayerHealthComponent->ApplyDamage(EnemyAttackDamage);
+	UE_LOG(LogMyGame, Log, TEXT("Enemy attack hit player: %s"), *GetName());
 	UE_LOG(LogMyGame, Log, TEXT("Player took damage: %.1f"), EnemyAttackDamage);
+	DrawDebugSphere(GetWorld(), TargetActor->GetActorLocation(), 55.f, 16, FColor::Red, false, EnemyAttackDebugDuration);
+
 	if (PlayerHealthComponent->IsDead())
 	{
 		UE_LOG(LogMyGame, Log, TEXT("Player died"));
+	}
+}
+
+void AARPGEnemyBase::DrawEnemyAttackRangeDebug(float Duration) const
+{
+	if (GetWorld())
+	{
+		DrawDebugSphere(GetWorld(), GetActorLocation(), AttackRange, 32, FColor::Orange, false, Duration, 0, 2.f);
 	}
 }
 
@@ -165,6 +255,8 @@ void AARPGEnemyBase::Die()
 	}
 
 	bIsDead = true;
+	bIsPreparingAttack = false;
+	PendingAttackTarget = nullptr;
 	UE_LOG(LogMyGame, Log, TEXT("Enemy died: %s"), *GetName());
 
 	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())

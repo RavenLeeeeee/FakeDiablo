@@ -33,7 +33,9 @@ public:
 
 protected:
 	void UpdateSimpleAI(float DeltaTime);
-	void TryAttackPlayer(AActor* PlayerActor);
+	void StartEnemyAttack(AActor* TargetActor, float DeltaTime);
+	void ResolveEnemyAttack();
+	void DrawEnemyAttackRangeDebug(float Duration) const;
 	void FaceDirection(const FVector& Direction, float DeltaTime);
 	void PlayHitFeedback();
 	void Die();
@@ -69,8 +71,17 @@ protected:
 	float EnemyAttackCooldown = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyAttackWindup = 0.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
+	float EnemyAttackDebugDuration = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
 	float EnemyFacingInterpSpeed = 8.f;
 
 	bool bIsDead = false;
+	bool bIsPreparingAttack = false;
+	float EnemyAttackResolveTime = 0.f;
 	float LastEnemyAttackTime = -999.f;
+	TWeakObjectPtr<AActor> PendingAttackTarget;
 };
