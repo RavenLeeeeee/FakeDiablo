@@ -27,10 +27,10 @@ protected:
 private:
 	FVector2D GetKeyboardMovementInput() const;
 	void HandleLeftClickPressed();
-	void UpdateClickMoveMovement();
+	void UpdateClickMoveMovement(float DeltaTime);
 	void StopARPGCharacterMovement();
-	void FaceDirection(const FVector& Direction);
-	void UpdateMouseFacing();
+	void SmoothFaceDirection(const FVector& Direction, float DeltaTime);
+	void UpdateMouseFacing(float DeltaTime);
 	void UpdateActionInput();
 	bool GetCursorWorldHit(FHitResult& OutHitResult);
 
@@ -39,6 +39,7 @@ private:
 	FVector ClickMoveTarget = FVector::ZeroVector;
 	bool bHasClickMoveTarget = false;
 	float ClickMoveAcceptanceRadius = 80.f;
+	float FacingInterpSpeed = 12.f;
 	uint64 LastHandledLeftClickFrame = 0;
 
 	bool bWasBasicAttackPressed = false;

@@ -65,7 +65,7 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 
 		const FVector WASDDirection = FVector(KeyboardMovementInput.X, KeyboardMovementInput.Y, 0.f).GetSafeNormal();
 		ARPGCharacter->AddMovementInput(WASDDirection, 1.f);
-		FaceDirection(WASDDirection);
+		SmoothFaceDirection(WASDDirection, DeltaTime);
 
 		UpdateActionInput();
 		return;
@@ -73,12 +73,12 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 
 	if (bHasClickMoveTarget)
 	{
-		UpdateClickMoveMovement();
+		UpdateClickMoveMovement(DeltaTime);
 		UpdateActionInput();
 		return;
 	}
 
-	UpdateMouseFacing();
+	UpdateMouseFacing(DeltaTime);
 	UpdateActionInput();
 }
 
@@ -140,7 +140,7 @@ void AARPGPlayerController::HandleLeftClickPressed()
 	UE_LOG(LogTemp, Warning, TEXT("[ClickMove] ClickMove hit failed"));
 }
 
-void AARPGPlayerController::UpdateClickMoveMovement()
+void AARPGPlayerController::UpdateClickMoveMovement(float DeltaTime)
 {
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (!ARPGCharacter)
@@ -163,7 +163,7 @@ void AARPGPlayerController::UpdateClickMoveMovement()
 
 	const FVector MoveDirection = Direction.GetSafeNormal();
 	ARPGCharacter->AddMovementInput(MoveDirection, 1.f);
-	FaceDirection(MoveDirection);
+	SmoothFaceDirection(MoveDirection, DeltaTime);
 }
 
 void AARPGPlayerController::StopARPGCharacterMovement()
@@ -177,7 +177,7 @@ void AARPGPlayerController::StopARPGCharacterMovement()
 	}
 }
 
-void AARPGPlayerController::FaceDirection(const FVector& Direction)
+void AARPGPlayerController::SmoothFaceDirection(const FVector& Direction, float DeltaTime)
 {
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (!ARPGCharacter)
@@ -192,10 +192,13 @@ void AARPGPlayerController::FaceDirection(const FVector& Direction)
 	}
 
 	const FRotator NewRotation = FlatDirection.Rotation();
-	ARPGCharacter->SetActorRotation(FRotator(0.f, NewRotation.Yaw, 0.f));
+	const FRotator TargetRotation(0.f, NewRotation.Yaw, 0.f);
+	const FRotator CurrentRotation = ARPGCharacter->GetActorRotation();
+	const FRotator SmoothedRotation = FMath::RInterpTo(CurrentRotation, TargetRotation, DeltaTime, FacingInterpSpeed);
+	ARPGCharacter->SetActorRotation(FRotator(0.f, SmoothedRotation.Yaw, 0.f));
 }
 
-void AARPGPlayerController::UpdateMouseFacing()
+void AARPGPlayerController::UpdateMouseFacing(float DeltaTime)
 {
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (!ARPGCharacter)
@@ -206,7 +209,8 @@ void AARPGPlayerController::UpdateMouseFacing()
 	FHitResult HitResult;
 	if (GetCursorWorldHit(HitResult))
 	{
-		ARPGCharacter->FaceWorldPoint(HitResult.ImpactPoint);
+		const FVector ToMouse = HitResult.ImpactPoint - ARPGCharacter->GetActorLocation();
+		SmoothFaceDirection(ToMouse, DeltaTime);
 	}
 }
 
