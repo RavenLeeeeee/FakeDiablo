@@ -38,7 +38,7 @@ private:
 
 	FVector ClickMoveTarget = FVector::ZeroVector;
 	bool bHasClickMoveTarget = false;
-	float ClickMoveAcceptanceRadius = 80.f;
+	float ClickMoveAcceptanceRadius = 35.f;
 	float FacingInterpSpeed = 12.f;
 	uint64 LastHandledLeftClickFrame = 0;
 

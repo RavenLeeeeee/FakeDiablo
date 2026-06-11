@@ -2,6 +2,7 @@
 
 #include "ARPGPlayerController.h"
 #include "ARPGPlayerCharacter.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -133,6 +134,7 @@ void AARPGPlayerController::HandleLeftClickPressed()
 	{
 		ClickMoveTarget = HitResult.ImpactPoint;
 		bHasClickMoveTarget = true;
+		DrawDebugSphere(GetWorld(), ClickMoveTarget, 20.f, 16, FColor::Green, false, 1.f);
 		UE_LOG(LogTemp, Warning, TEXT("[ClickMove] Target refreshed: %s"), *ClickMoveTarget.ToString());
 		return;
 	}
@@ -149,11 +151,16 @@ void AARPGPlayerController::UpdateClickMoveMovement(float DeltaTime)
 		return;
 	}
 
-	const FVector PawnLocation = ARPGCharacter->GetActorLocation();
+	FVector PawnLocation = ARPGCharacter->GetActorLocation();
+	FVector TargetLocation = ClickMoveTarget;
+	PawnLocation.Z = 0.f;
+	TargetLocation.Z = 0.f;
+
+	const float DistanceToTarget = FVector::Dist2D(PawnLocation, TargetLocation);
 	FVector Direction = ClickMoveTarget - PawnLocation;
 	Direction.Z = 0.f;
 
-	if (Direction.Size2D() <= ClickMoveAcceptanceRadius)
+	if (DistanceToTarget <= ClickMoveAcceptanceRadius)
 	{
 		bHasClickMoveTarget = false;
 		StopARPGCharacterMovement();
