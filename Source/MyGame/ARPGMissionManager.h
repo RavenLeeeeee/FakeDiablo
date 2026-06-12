@@ -32,6 +32,9 @@ public:
 	void NotifyEnemyKilled(AARPGEnemyBase* DeadEnemy);
 
 	UFUNCTION(BlueprintCallable, Category="Mission")
+	void NotifyBossKilled(AARPGEnemyBase* DeadBoss);
+
+	UFUNCTION(BlueprintCallable, Category="Mission")
 	void CompleteKillObjective();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mission")

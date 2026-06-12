@@ -282,7 +282,14 @@ void AARPGEnemyBase::Die()
 
 	if (MissionManager)
 	{
-		MissionManager->NotifyEnemyKilled(this);
+		if (bIsBoss)
+		{
+			MissionManager->NotifyBossKilled(this);
+		}
+		else
+		{
+			MissionManager->NotifyEnemyKilled(this);
+		}
 	}
 	else
 	{
@@ -307,5 +314,12 @@ void AARPGEnemyBase::Die()
 		MeshComponent->AddLocalOffset(DeathMeshLocationOffset);
 	}
 
-	SetLifeSpan(CorpseLifeSpan);
+	if (!bIsBoss)
+	{
+		SetLifeSpan(CorpseLifeSpan);
+	}
+	else
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Boss corpse will remain: %s"), *GetName());
+	}
 }

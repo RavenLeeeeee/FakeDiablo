@@ -51,6 +51,8 @@ AARPGEnemyBase* AARPGBossSpawner::SpawnBoss()
 	}
 
 	bHasSpawnedBoss = true;
+	SpawnedBoss->bIsBoss = true;
+	UE_LOG(LogMyGame, Log, TEXT("Boss marked as boss"));
 
 	if (SpawnedBoss->GetController() == nullptr)
 	{

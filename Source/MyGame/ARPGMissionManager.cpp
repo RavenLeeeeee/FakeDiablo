@@ -39,6 +39,25 @@ void AARPGMissionManager::NotifyEnemyKilled(AARPGEnemyBase* DeadEnemy)
 	}
 }
 
+void AARPGMissionManager::NotifyBossKilled(AARPGEnemyBase* DeadBoss)
+{
+	if (!DeadBoss)
+	{
+		return;
+	}
+
+	if (MissionState != EARPGMissionState::ReadyForBoss)
+	{
+		return;
+	}
+
+	MissionState = EARPGMissionState::Completed;
+
+	UE_LOG(LogMyGame, Log, TEXT("Boss defeated"));
+	UE_LOG(LogMyGame, Log, TEXT("Mission completed"));
+	UE_LOG(LogMyGame, Log, TEXT("Victory"));
+}
+
 void AARPGMissionManager::CompleteKillObjective()
 {
 	MissionState = EARPGMissionState::ReadyForBoss;

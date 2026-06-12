@@ -31,6 +31,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	bool IsDead() const { return bIsDead; }
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy")
+	bool bIsBoss = false;
+
 protected:
 	void UpdateSimpleAI(float DeltaTime);
 	void StartEnemyAttack(AActor* TargetActor, float DeltaTime);
