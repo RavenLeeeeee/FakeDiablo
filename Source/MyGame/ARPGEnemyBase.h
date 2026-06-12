@@ -26,7 +26,7 @@ public:
 	void ReceiveAttackHit(float DamageAmount);
 
 	UFUNCTION(BlueprintCallable, Category="Combat")
-	UARPGHealthComponent* GetHealthComponent() const { return HealthComponent; }
+	UARPGHealthComponent* GetHealthComponent();
 
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	bool IsDead() const { return bIsDead; }
@@ -35,6 +35,8 @@ public:
 	bool bIsBoss = false;
 
 protected:
+	UARPGHealthComponent* ResolveHealthComponent();
+
 	void UpdateSimpleAI(float DeltaTime);
 	void StartEnemyAttack(AActor* TargetActor, float DeltaTime);
 	void ResolveEnemyAttack();

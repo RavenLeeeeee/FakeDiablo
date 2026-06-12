@@ -37,6 +37,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Mission")
 	void CompleteKillObjective();
 
+	UFUNCTION(BlueprintCallable, Category="Mission")
+	int32 GetCurrentEnemyKills() const { return CurrentEnemyKills; }
+
+	UFUNCTION(BlueprintCallable, Category="Mission")
+	int32 GetRequiredEnemyKills() const { return RequiredEnemyKills; }
+
+	UFUNCTION(BlueprintCallable, Category="Mission")
+	EARPGMissionState GetMissionState() const { return MissionState; }
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mission")
 	int32 RequiredEnemyKills = 3;
 

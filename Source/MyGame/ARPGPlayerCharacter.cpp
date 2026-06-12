@@ -59,6 +59,20 @@ AARPGPlayerCharacter::AARPGPlayerCharacter()
 	TopDownCamera->bUsePawnControlRotation = false;
 }
 
+void AARPGPlayerCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (HealthComponent)
+	{
+		HealthComponent->InitializeHealth(true);
+		UE_LOG(LogMyGame, Warning, TEXT("%s Player BeginPlay Health: %.1f / %.1f"),
+			*GetName(),
+			HealthComponent->GetCurrentHealth(),
+			HealthComponent->GetMaxHealth());
+	}
+}
+
 void AARPGPlayerCharacter::MoveInWorldDirection(const FVector2D& MovementInput)
 {
 	const FVector Direction(MovementInput.X, MovementInput.Y, 0.f);

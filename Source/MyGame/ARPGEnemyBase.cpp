@@ -31,6 +31,18 @@ void AARPGEnemyBase::BeginPlay()
 		MovementComponent->SetMovementMode(MOVE_Walking);
 	}
 
+	UARPGHealthComponent* InstanceHealth = ResolveHealthComponent();
+	if (InstanceHealth)
+	{
+		InstanceHealth->InitializeHealth(true);
+
+		UE_LOG(LogMyGame, Warning, TEXT("%s Enemy BeginPlay Health: %.1f / %.1f, HealthOwner=%s"),
+			*GetName(),
+			InstanceHealth->GetCurrentHealth(),
+			InstanceHealth->GetMaxHealth(),
+			InstanceHealth->GetOwner() ? *InstanceHealth->GetOwner()->GetName() : TEXT("None"));
+	}
+
 	UE_LOG(LogMyGame, Log, TEXT("Enemy BeginPlay: %s, bEnableSimpleAI: %s, Controller: %s"),
 		*GetName(),
 		bEnableSimpleAI ? TEXT("true") : TEXT("false"),
@@ -49,18 +61,63 @@ void AARPGEnemyBase::ApplyDamageToEnemy(float DamageAmount)
 	ReceiveAttackHit(DamageAmount);
 }
 
+UARPGHealthComponent* AARPGEnemyBase::GetHealthComponent()
+{
+	return ResolveHealthComponent();
+}
+
+UARPGHealthComponent* AARPGEnemyBase::ResolveHealthComponent()
+{
+	if (HealthComponent && HealthComponent->GetOwner() == this && !HealthComponent->IsTemplate())
+	{
+		return HealthComponent;
+	}
+
+	UE_LOG(LogMyGame, Error, TEXT("%s HealthComponent invalid or wrong owner. StoredOwner=%s. Trying FindComponentByClass."),
+		*GetName(),
+		HealthComponent && HealthComponent->GetOwner() ? *HealthComponent->GetOwner()->GetName() : TEXT("None"));
+
+	UARPGHealthComponent* InstanceHealth = FindComponentByClass<UARPGHealthComponent>();
+	if (!InstanceHealth)
+	{
+		HealthComponent = nullptr;
+		UE_LOG(LogMyGame, Error, TEXT("%s has no valid instance HealthComponent"), *GetName());
+		return nullptr;
+	}
+
+	if (InstanceHealth->GetOwner() != this || InstanceHealth->IsTemplate())
+	{
+		UE_LOG(LogMyGame, Error, TEXT("%s still has wrong HealthComponent owner: %s. Abort health access."),
+			*GetName(),
+			InstanceHealth->GetOwner() ? *InstanceHealth->GetOwner()->GetName() : TEXT("None"));
+		return nullptr;
+	}
+
+	HealthComponent = InstanceHealth;
+	return HealthComponent;
+}
+
 void AARPGEnemyBase::ReceiveAttackHit(float DamageAmount)
 {
-	if (bIsDead || !HealthComponent || HealthComponent->IsDead())
+	if (bIsDead)
 	{
+		UE_LOG(LogMyGame, Warning, TEXT("%s ignored ReceiveAttackHit because already dead"), *GetName());
 		return;
 	}
 
-	UE_LOG(LogMyGame, Log, TEXT("Enemy hit: %s for %.1f damage"), *GetName(), DamageAmount);
-	PlayHitFeedback();
-	HealthComponent->ApplyDamage(DamageAmount);
+	UE_LOG(LogMyGame, Warning, TEXT("%s ReceiveAttackHit %.1f"), *GetName(), DamageAmount);
 
-	if (HealthComponent->IsDead())
+	UARPGHealthComponent* InstanceHealth = ResolveHealthComponent();
+	if (!InstanceHealth)
+	{
+		UE_LOG(LogMyGame, Error, TEXT("%s has no valid instance HealthComponent"), *GetName());
+		return;
+	}
+
+	PlayHitFeedback();
+	InstanceHealth->ApplyDamage(DamageAmount);
+
+	if (InstanceHealth->IsDead())
 	{
 		Die();
 	}

@@ -24,9 +24,22 @@ protected:
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dodge")
+	float DodgeDistance = 520.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dodge")
+	float DodgeDuration = 0.34f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dodge")
+	float DodgeCooldown = 1.0f;
+
 private:
 	FVector2D GetKeyboardMovementInput() const;
 	void HandleLeftClickPressed();
+	void HandleDodgePressed();
+	void HandleDodgeTick(float DeltaTime);
+	void EndDodge();
+	FVector GetCurrentDodgeDirection();
 	void UpdateClickMoveMovement(float DeltaTime);
 	void StopARPGCharacterMovement();
 	void SmoothFaceDirection(const FVector& Direction, float DeltaTime);
@@ -51,7 +64,15 @@ private:
 	float BasicAttackLockEndTime = 0.f;
 	uint64 LastHandledLeftClickFrame = 0;
 
+	bool bIsDodging = false;
+	float DodgeStartTime = 0.f;
+	float DodgeEndTime = 0.f;
+	float LastDodgeTime = -999.f;
+	float ActiveDodgeSpeed = 0.f;
+	FVector DodgeDirection = FVector::ZeroVector;
+	ECollisionResponse SavedPawnCollisionResponse = ECR_Block;
+	bool bSavedPawnCollisionResponseValid = false;
+
 	bool bIsBasicAttackLocked = false;
 	bool bWasBasicAttackPressed = false;
-	bool bWasDodgePressed = false;
 };

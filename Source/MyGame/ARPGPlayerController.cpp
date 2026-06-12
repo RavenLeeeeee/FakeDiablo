@@ -2,7 +2,9 @@
 
 #include "ARPGPlayerController.h"
 #include "ARPGEnemyBase.h"
+#include "ARPGHealthComponent.h"
 #include "ARPGPlayerCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
@@ -35,6 +37,7 @@ void AARPGPlayerController::SetupInputComponent()
 	Super::SetupInputComponent();
 
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AARPGPlayerController::HandleLeftClickPressed);
+	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AARPGPlayerController::HandleDodgePressed);
 
 	UE_LOG(LogMyGame, Log, TEXT("AARPGPlayerController SetupInputComponent"));
 }
@@ -47,6 +50,12 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	if (!ARPGCharacter)
 	{
 		UpdateActionInput();
+		return;
+	}
+
+	if (bIsDodging)
+	{
+		HandleDodgeTick(DeltaTime);
 		return;
 	}
 
@@ -124,6 +133,11 @@ FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 
 void AARPGPlayerController::HandleLeftClickPressed()
 {
+	if (bIsDodging)
+	{
+		return;
+	}
+
 	if (LastHandledLeftClickFrame == GFrameCounter)
 	{
 		return;
@@ -155,6 +169,171 @@ void AARPGPlayerController::HandleLeftClickPressed()
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[ClickMove] ClickMove hit failed"));
+}
+
+void AARPGPlayerController::HandleDodgePressed()
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		return;
+	}
+
+	if (bIsDodging)
+	{
+		return;
+	}
+
+	if (bIsBasicAttackLocked)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Dodge blocked during BasicAttack"));
+		return;
+	}
+
+	UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime < LastDodgeTime + DodgeCooldown)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Dodge on cooldown"));
+		return;
+	}
+
+	DodgeDirection = GetCurrentDodgeDirection();
+	if (DodgeDirection.IsNearlyZero())
+	{
+		DodgeDirection = ARPGCharacter->GetActorForwardVector();
+		DodgeDirection.Z = 0.f;
+		DodgeDirection = DodgeDirection.IsNearlyZero() ? FVector::ForwardVector : DodgeDirection.GetSafeNormal();
+	}
+
+	UCharacterMovementComponent* MovementComponent = ARPGCharacter->GetCharacterMovement();
+	ActiveDodgeSpeed = DodgeDuration > 0.f ? DodgeDistance / DodgeDuration : DodgeDistance;
+	if (MovementComponent)
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	bIsDodging = true;
+	DodgeStartTime = CurrentTime;
+	DodgeEndTime = CurrentTime + DodgeDuration;
+	LastDodgeTime = CurrentTime;
+
+	bHasClickMoveTarget = false;
+	ClickMoveTarget = FVector::ZeroVector;
+
+	if (UCapsuleComponent* Capsule = ARPGCharacter->GetCapsuleComponent())
+	{
+		SavedPawnCollisionResponse = Capsule->GetCollisionResponseToChannel(ECC_Pawn);
+		bSavedPawnCollisionResponseValid = true;
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		UE_LOG(LogMyGame, Log, TEXT("Dodge collision ignore Pawn enabled"));
+	}
+
+	if (HealthComponent)
+	{
+		HealthComponent->SetInvincible(true);
+	}
+
+	ARPGCharacter->Dodge();
+	SmoothFaceDirection(DodgeDirection, 0.1f);
+	UE_LOG(LogMyGame, Log, TEXT("Dodge started"));
+	UE_LOG(LogMyGame, Log, TEXT("DodgeDirection: %s"), *DodgeDirection.ToString());
+	UE_LOG(LogMyGame, Log, TEXT("DodgeDistance: %.1f"), DodgeDistance);
+	UE_LOG(LogMyGame, Log, TEXT("DodgeDuration: %.2f"), DodgeDuration);
+	UE_LOG(LogMyGame, Log, TEXT("DodgeSpeed: %.1f"), ActiveDodgeSpeed);
+}
+
+void AARPGPlayerController::HandleDodgeTick(float DeltaTime)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		EndDodge();
+		return;
+	}
+
+	if (GetWorld()->GetTimeSeconds() >= DodgeEndTime)
+	{
+		EndDodge();
+		return;
+	}
+
+	const FVector DeltaMove = DodgeDirection * ActiveDodgeSpeed * DeltaTime;
+	ARPGCharacter->AddActorWorldOffset(DeltaMove, true);
+	SmoothFaceDirection(DodgeDirection, DeltaTime);
+}
+
+void AARPGPlayerController::EndDodge()
+{
+	if (!bIsDodging)
+	{
+		return;
+	}
+
+	bIsDodging = false;
+	DodgeDirection = FVector::ZeroVector;
+
+	if (AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter())
+	{
+		if (UCapsuleComponent* Capsule = ARPGCharacter->GetCapsuleComponent())
+		{
+			if (bSavedPawnCollisionResponseValid)
+			{
+				Capsule->SetCollisionResponseToChannel(ECC_Pawn, SavedPawnCollisionResponse);
+				bSavedPawnCollisionResponseValid = false;
+				UE_LOG(LogMyGame, Log, TEXT("Dodge collision restored"));
+			}
+		}
+
+		if (UCharacterMovementComponent* MovementComponent = ARPGCharacter->GetCharacterMovement())
+		{
+			MovementComponent->StopMovementImmediately();
+		}
+
+		if (UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent())
+		{
+			HealthComponent->SetInvincible(false);
+		}
+	}
+
+	bSavedPawnCollisionResponseValid = false;
+	ActiveDodgeSpeed = 0.f;
+	UE_LOG(LogMyGame, Log, TEXT("Dodge ended"));
+}
+
+FVector AARPGPlayerController::GetCurrentDodgeDirection()
+{
+	const AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter)
+	{
+		return FVector::ForwardVector;
+	}
+
+	const FVector2D KeyboardMovementInput = GetKeyboardMovementInput();
+	if (!KeyboardMovementInput.IsNearlyZero())
+	{
+		return FVector(KeyboardMovementInput.X, KeyboardMovementInput.Y, 0.f).GetSafeNormal();
+	}
+
+	FHitResult HitResult;
+	if (GetCursorWorldHit(HitResult))
+	{
+		FVector Direction = HitResult.ImpactPoint - ARPGCharacter->GetActorLocation();
+		Direction.Z = 0.f;
+		if (!Direction.IsNearlyZero())
+		{
+			return Direction.GetSafeNormal();
+		}
+	}
+
+	FVector ForwardDirection = ARPGCharacter->GetActorForwardVector();
+	ForwardDirection.Z = 0.f;
+	return ForwardDirection.IsNearlyZero() ? FVector::ForwardVector : ForwardDirection.GetSafeNormal();
 }
 
 void AARPGPlayerController::UpdateClickMoveMovement(float DeltaTime)
@@ -265,13 +444,6 @@ void AARPGPlayerController::UpdateActionInput()
 		}
 	}
 	bWasBasicAttackPressed = bIsBasicAttackPressed;
-
-	const bool bIsDodgePressed = IsInputKeyDown(EKeys::SpaceBar);
-	if (bIsDodgePressed && !bWasDodgePressed)
-	{
-		ARPGCharacter->Dodge();
-	}
-	bWasDodgePressed = bIsDodgePressed;
 }
 
 void AARPGPlayerController::PerformBasicAttack()
@@ -315,7 +487,8 @@ void AARPGPlayerController::PerformBasicAttack()
 			HitEnemies.Add(Enemy);
 			DrawDebugSphere(GetWorld(), HitResult.ImpactPoint, 24.f, 12, FColor::Yellow, false, 1.f);
 			UE_LOG(LogMyGame, Log, TEXT("BasicAttack hit enemy: %s"), *Enemy->GetName());
-			Enemy->ApplyDamageToEnemy(BasicAttackDamage);
+			UE_LOG(LogMyGame, Warning, TEXT("BasicAttack applying %.1f damage to enemy: %s"), BasicAttackDamage, *Enemy->GetName());
+			Enemy->ReceiveAttackHit(BasicAttackDamage);
 		}
 	}
 
