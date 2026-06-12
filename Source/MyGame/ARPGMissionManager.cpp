@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ARPGMissionManager.h"
+#include "ARPGBossSpawner.h"
 #include "ARPGEnemyBase.h"
 #include "MyGame.h"
 
@@ -44,4 +45,13 @@ void AARPGMissionManager::CompleteKillObjective()
 
 	UE_LOG(LogMyGame, Log, TEXT("Kill objective completed"));
 	UE_LOG(LogMyGame, Log, TEXT("Boss stage unlocked"));
+
+	if (BossSpawner)
+	{
+		BossSpawner->SpawnBoss();
+	}
+	else
+	{
+		UE_LOG(LogMyGame, Warning, TEXT("BossSpawner not assigned"));
+	}
 }

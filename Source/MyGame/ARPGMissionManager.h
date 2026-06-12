@@ -7,6 +7,7 @@
 #include "ARPGMissionManager.generated.h"
 
 class AARPGEnemyBase;
+class AARPGBossSpawner;
 
 UENUM(BlueprintType)
 enum class EARPGMissionState : uint8
@@ -41,4 +42,7 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mission")
 	EARPGMissionState MissionState = EARPGMissionState::KillEnemies;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mission")
+	AARPGBossSpawner* BossSpawner = nullptr;
 };
