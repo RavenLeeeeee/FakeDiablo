@@ -6,6 +6,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
@@ -15,6 +16,7 @@
 AARPGEnemyBase::AARPGEnemyBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
 	HealthComponent = CreateDefaultSubobject<UARPGHealthComponent>(TEXT("HealthComponent"));
 }
@@ -28,6 +30,11 @@ void AARPGEnemyBase::BeginPlay()
 		MovementComponent->MaxWalkSpeed = EnemyMoveSpeed;
 		MovementComponent->SetMovementMode(MOVE_Walking);
 	}
+
+	UE_LOG(LogMyGame, Log, TEXT("Enemy BeginPlay: %s, bEnableSimpleAI: %s, Controller: %s"),
+		*GetName(),
+		bEnableSimpleAI ? TEXT("true") : TEXT("false"),
+		GetController() ? *GetController()->GetName() : TEXT("None"));
 }
 
 void AARPGEnemyBase::Tick(float DeltaTime)
