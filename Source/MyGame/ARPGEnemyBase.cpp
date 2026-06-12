@@ -8,6 +8,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "ARPGMissionManager.h"
 #include "MyGame.h"
 
 AARPGEnemyBase::AARPGEnemyBase()
@@ -258,6 +260,27 @@ void AARPGEnemyBase::Die()
 	bIsPreparingAttack = false;
 	PendingAttackTarget = nullptr;
 	UE_LOG(LogMyGame, Log, TEXT("Enemy died: %s"), *GetName());
+
+	TArray<AActor*> MissionManagers;
+	UGameplayStatics::GetAllActorsOfClass(this, AARPGMissionManager::StaticClass(), MissionManagers);
+	AARPGMissionManager* MissionManager = nullptr;
+	for (AActor* MissionManagerActor : MissionManagers)
+	{
+		MissionManager = Cast<AARPGMissionManager>(MissionManagerActor);
+		if (MissionManager)
+		{
+			break;
+		}
+	}
+
+	if (MissionManager)
+	{
+		MissionManager->NotifyEnemyKilled(this);
+	}
+	else
+	{
+		UE_LOG(LogMyGame, Warning, TEXT("MissionManager not found"));
+	}
 
 	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
 	{
