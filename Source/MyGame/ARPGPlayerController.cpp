@@ -7,6 +7,7 @@
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/HitResult.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputCoreTypes.h"
@@ -38,6 +39,7 @@ void AARPGPlayerController::SetupInputComponent()
 
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AARPGPlayerController::HandleLeftClickPressed);
 	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AARPGPlayerController::HandleDodgePressed);
+	InputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AARPGPlayerController::HandleAreaSkillPressed);
 
 	UE_LOG(LogMyGame, Log, TEXT("AARPGPlayerController SetupInputComponent"));
 }
@@ -60,6 +62,21 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	}
 
 	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (bIsAreaSkillCasting)
+	{
+		bWasBasicAttackPressed = IsInputKeyDown(EKeys::RightMouseButton);
+
+		if (CurrentTime >= AreaSkillCastEndTime)
+		{
+			bIsAreaSkillCasting = false;
+			UE_LOG(LogMyGame, Log, TEXT("AreaSkill cast ended"));
+		}
+		else
+		{
+			return;
+		}
+	}
+
 	if (bIsBasicAttackLocked)
 	{
 		UpdateActionInput();
@@ -133,7 +150,7 @@ FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 
 void AARPGPlayerController::HandleLeftClickPressed()
 {
-	if (bIsDodging)
+	if (bIsDodging || bIsAreaSkillCasting)
 	{
 		return;
 	}
@@ -180,6 +197,11 @@ void AARPGPlayerController::HandleDodgePressed()
 	}
 
 	if (bIsDodging)
+	{
+		return;
+	}
+
+	if (bIsAreaSkillCasting)
 	{
 		return;
 	}
@@ -246,6 +268,55 @@ void AARPGPlayerController::HandleDodgePressed()
 	UE_LOG(LogMyGame, Log, TEXT("DodgeDistance: %.1f"), DodgeDistance);
 	UE_LOG(LogMyGame, Log, TEXT("DodgeDuration: %.2f"), DodgeDuration);
 	UE_LOG(LogMyGame, Log, TEXT("DodgeSpeed: %.1f"), ActiveDodgeSpeed);
+}
+
+void AARPGPlayerController::HandleAreaSkillPressed()
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		return;
+	}
+
+	UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	if (bIsDodging)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("AreaSkill blocked during Dodge"));
+		return;
+	}
+
+	if (bIsBasicAttackLocked)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("AreaSkill blocked during BasicAttack"));
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime < LastAreaSkillTime + AreaSkillCooldown)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("AreaSkill on cooldown"));
+		return;
+	}
+
+	const FVector AreaCenter = GetAreaSkillCenter(ARPGCharacter);
+	const FVector FaceDirection = AreaCenter - ARPGCharacter->GetActorLocation();
+
+	bHasClickMoveTarget = false;
+	ClickMoveTarget = FVector::ZeroVector;
+	StopARPGCharacterMovement();
+
+	bIsAreaSkillCasting = true;
+	AreaSkillCastEndTime = CurrentTime + AreaSkillCastLockDuration;
+	LastAreaSkillTime = CurrentTime;
+
+	SmoothFaceDirection(FaceDirection, 0.1f);
+	UE_LOG(LogMyGame, Log, TEXT("AreaSkill cast started"));
+	PerformAreaSkill(AreaCenter);
 }
 
 void AARPGPlayerController::HandleDodgeTick(float DeltaTime)
@@ -424,6 +495,12 @@ void AARPGPlayerController::UpdateActionInput()
 	}
 
 	const bool bIsBasicAttackPressed = IsInputKeyDown(EKeys::RightMouseButton);
+	if (bIsAreaSkillCasting)
+	{
+		bWasBasicAttackPressed = bIsBasicAttackPressed;
+		return;
+	}
+
 	if (bIsBasicAttackPressed && !bWasBasicAttackPressed)
 	{
 		const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
@@ -528,6 +605,78 @@ FVector AARPGPlayerController::GetBasicAttackDirection(const AARPGPlayerCharacte
 	FVector ForwardDirection = ARPGCharacter->GetActorForwardVector();
 	ForwardDirection.Z = 0.f;
 	return ForwardDirection.IsNearlyZero() ? FVector::ForwardVector : ForwardDirection.GetSafeNormal();
+}
+
+FVector AARPGPlayerController::GetAreaSkillCenter(const AARPGPlayerCharacter* ARPGCharacter)
+{
+	if (!ARPGCharacter)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FVector WorldOrigin;
+	FVector WorldDirection;
+	if (DeprojectMousePositionToWorld(WorldOrigin, WorldDirection))
+	{
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ARPGAreaSkillMouseTrace), false);
+		QueryParams.AddIgnoredActor(GetPawn());
+
+		FHitResult HitResult;
+		const FVector TraceEnd = WorldOrigin + (WorldDirection * 100000.f);
+		if (GetWorld() && GetWorld()->LineTraceSingleByChannel(HitResult, WorldOrigin, TraceEnd, ECC_Visibility, QueryParams))
+		{
+			FVector AreaCenter = HitResult.ImpactPoint;
+			AreaCenter.Z = ARPGCharacter->GetActorLocation().Z;
+			return AreaCenter;
+		}
+	}
+
+	FVector ForwardDirection = ARPGCharacter->GetActorForwardVector();
+	ForwardDirection.Z = 0.f;
+	ForwardDirection = ForwardDirection.IsNearlyZero() ? FVector::ForwardVector : ForwardDirection.GetSafeNormal();
+	return ARPGCharacter->GetActorLocation() + (ForwardDirection * 250.f);
+}
+
+void AARPGPlayerController::PerformAreaSkill(const FVector& AreaCenter)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		UE_LOG(LogMyGame, Log, TEXT("AreaSkill missed"));
+		return;
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ARPGAreaSkillOverlap), false);
+	QueryParams.AddIgnoredActor(ARPGCharacter);
+
+	TArray<FOverlapResult> OverlapResults;
+	const FCollisionShape AreaShape = FCollisionShape::MakeSphere(AreaSkillRadius);
+	const bool bHit = GetWorld()->OverlapMultiByChannel(OverlapResults, AreaCenter, FQuat::Identity, ECC_Pawn, AreaShape, QueryParams);
+
+	DrawDebugSphere(GetWorld(), AreaCenter, AreaSkillRadius, 32, FColor::Cyan, false, 0.8f, 0, 2.f);
+
+	TSet<AARPGEnemyBase*> HitEnemies;
+	if (bHit)
+	{
+		for (const FOverlapResult& OverlapResult : OverlapResults)
+		{
+			AARPGEnemyBase* Enemy = Cast<AARPGEnemyBase>(OverlapResult.GetActor());
+			if (!Enemy || Enemy->IsDead() || HitEnemies.Contains(Enemy))
+			{
+				continue;
+			}
+
+			HitEnemies.Add(Enemy);
+			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 28.f, 12, FColor::Yellow, false, 0.8f);
+			UE_LOG(LogMyGame, Log, TEXT("AreaSkill hit enemy: %s"), *Enemy->GetName());
+			Enemy->ReceiveAttackHit(AreaSkillDamage);
+		}
+	}
+
+	if (HitEnemies.Num() == 0)
+	{
+		UE_LOG(LogMyGame, Log, TEXT("AreaSkill missed"));
+	}
 }
 
 bool AARPGPlayerController::GetCursorWorldHit(FHitResult& OutHitResult)

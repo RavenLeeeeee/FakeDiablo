@@ -33,10 +33,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dodge")
 	float DodgeCooldown = 1.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill")
+	float AreaSkillRadius = 260.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill")
+	float AreaSkillDamage = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill")
+	float AreaSkillCooldown = 3.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill")
+	float AreaSkillCastLockDuration = 0.35f;
+
 private:
 	FVector2D GetKeyboardMovementInput() const;
 	void HandleLeftClickPressed();
 	void HandleDodgePressed();
+	void HandleAreaSkillPressed();
 	void HandleDodgeTick(float DeltaTime);
 	void EndDodge();
 	FVector GetCurrentDodgeDirection();
@@ -47,6 +60,8 @@ private:
 	void UpdateActionInput();
 	void PerformBasicAttack();
 	FVector GetBasicAttackDirection(const AARPGPlayerCharacter* ARPGCharacter) const;
+	FVector GetAreaSkillCenter(const AARPGPlayerCharacter* ARPGCharacter);
+	void PerformAreaSkill(const FVector& AreaCenter);
 	bool GetCursorWorldHit(FHitResult& OutHitResult);
 
 	AARPGPlayerCharacter* GetARPGCharacter() const;
@@ -75,4 +90,8 @@ private:
 
 	bool bIsBasicAttackLocked = false;
 	bool bWasBasicAttackPressed = false;
+
+	bool bIsAreaSkillCasting = false;
+	float AreaSkillCastEndTime = 0.f;
+	float LastAreaSkillTime = -999.f;
 };
