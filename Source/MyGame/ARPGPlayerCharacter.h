@@ -8,6 +8,7 @@
 
 class UCameraComponent;
 class UARPGHealthComponent;
+class UARPGManaComponent;
 class USpringArmComponent;
 
 /**
@@ -42,8 +43,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UARPGHealthComponent* HealthComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	UARPGManaComponent* ManaComponent;
+
 public:
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE UCameraComponent* GetTopDownCamera() const { return TopDownCamera; }
 	FORCEINLINE UARPGHealthComponent* GetHealthComponent() const { return HealthComponent; }
+	FORCEINLINE UARPGManaComponent* GetManaComponent() const { return ManaComponent; }
 };

@@ -24,6 +24,9 @@ public:
 	void ApplyDamage(float DamageAmount);
 
 	UFUNCTION(BlueprintCallable, Category="Health")
+	void RestoreHealth(float Amount);
+
+	UFUNCTION(BlueprintCallable, Category="Health")
 	void SetInvincible(bool bNewInvincible);
 
 	UFUNCTION(BlueprintCallable, Category="Health")
@@ -40,6 +43,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Health")
 	float GetMaxHealth() const { return MaxHealth; }
+
+	UFUNCTION(BlueprintCallable, Category="Health")
+	float GetHealthPercent() const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Health")
 	float MaxHealth = 100.f;

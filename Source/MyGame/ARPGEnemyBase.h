@@ -31,6 +31,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	bool IsDead() const { return bIsDead; }
 
+	UFUNCTION(BlueprintCallable, Category="Status")
+	void ApplyBleed(float DamagePerTick, float Duration, float TickInterval);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy")
 	bool bIsBoss = false;
 
@@ -43,6 +46,7 @@ protected:
 	void DrawEnemyAttackRangeDebug(float Duration) const;
 	void FaceDirection(const FVector& Direction, float DeltaTime);
 	void PlayHitFeedback();
+	void UpdateBleed(float CurrentTime);
 	void Die();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
@@ -84,9 +88,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
 	float EnemyFacingInterpSpeed = 8.f;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Status")
+	bool bIsBleeding = false;
+
 	bool bIsDead = false;
 	bool bIsPreparingAttack = false;
 	float EnemyAttackResolveTime = 0.f;
 	float LastEnemyAttackTime = -999.f;
+	float BleedDamagePerTickRuntime = 0.f;
+	float BleedEndTime = 0.f;
+	float NextBleedTickTime = 0.f;
+	float BleedTickIntervalRuntime = 1.f;
 	TWeakObjectPtr<AActor> PendingAttackTarget;
 };

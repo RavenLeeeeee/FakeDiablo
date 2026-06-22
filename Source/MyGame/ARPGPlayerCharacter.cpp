@@ -2,6 +2,7 @@
 
 #include "ARPGPlayerCharacter.h"
 #include "ARPGHealthComponent.h"
+#include "ARPGManaComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -16,6 +17,7 @@ AARPGPlayerCharacter::AARPGPlayerCharacter()
 	PrimaryActorTick.bCanEverTick = false;
 
 	HealthComponent = CreateDefaultSubobject<UARPGHealthComponent>(TEXT("HealthComponent"));
+	ManaComponent = CreateDefaultSubobject<UARPGManaComponent>(TEXT("ManaComponent"));
 
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 

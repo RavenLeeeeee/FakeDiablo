@@ -53,6 +53,11 @@ void AARPGEnemyBase::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	if (GetWorld())
+	{
+		UpdateBleed(GetWorld()->GetTimeSeconds());
+	}
+
 	UpdateSimpleAI(DeltaTime);
 }
 
@@ -121,6 +126,23 @@ void AARPGEnemyBase::ReceiveAttackHit(float DamageAmount)
 	{
 		Die();
 	}
+}
+
+void AARPGEnemyBase::ApplyBleed(float DamagePerTick, float Duration, float TickInterval)
+{
+	if (bIsDead || DamagePerTick <= 0.f || Duration <= 0.f || TickInterval <= 0.f || !GetWorld())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	bIsBleeding = true;
+	BleedDamagePerTickRuntime = DamagePerTick;
+	BleedTickIntervalRuntime = TickInterval;
+	BleedEndTime = CurrentTime + Duration;
+	NextBleedTickTime = CurrentTime + TickInterval;
+
+	UE_LOG(LogMyGame, Log, TEXT("%s Enemy bleeding started"), *GetName());
 }
 
 void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
@@ -313,6 +335,49 @@ void AARPGEnemyBase::PlayHitFeedback()
 	}
 }
 
+void AARPGEnemyBase::UpdateBleed(float CurrentTime)
+{
+	if (!bIsBleeding)
+	{
+		return;
+	}
+
+	if (bIsDead)
+	{
+		bIsBleeding = false;
+		return;
+	}
+
+	if (CurrentTime >= BleedEndTime)
+	{
+		bIsBleeding = false;
+		UE_LOG(LogMyGame, Log, TEXT("%s Bleed ended"), *GetName());
+		return;
+	}
+
+	if (CurrentTime < NextBleedTickTime)
+	{
+		return;
+	}
+
+	NextBleedTickTime += BleedTickIntervalRuntime;
+
+	UARPGHealthComponent* InstanceHealth = ResolveHealthComponent();
+	if (!InstanceHealth)
+	{
+		bIsBleeding = false;
+		return;
+	}
+
+	InstanceHealth->ApplyDamage(BleedDamagePerTickRuntime);
+	UE_LOG(LogMyGame, Log, TEXT("%s Bleed tick damage: %.1f"), *GetName(), BleedDamagePerTickRuntime);
+
+	if (InstanceHealth->IsDead())
+	{
+		Die();
+	}
+}
+
 void AARPGEnemyBase::Die()
 {
 	if (bIsDead)
@@ -321,6 +386,10 @@ void AARPGEnemyBase::Die()
 	}
 
 	bIsDead = true;
+	bIsBleeding = false;
+	BleedDamagePerTickRuntime = 0.f;
+	BleedEndTime = 0.f;
+	NextBleedTickTime = 0.f;
 	bIsPreparingAttack = false;
 	PendingAttackTarget = nullptr;
 	UE_LOG(LogMyGame, Log, TEXT("Enemy died: %s"), *GetName());

@@ -4,6 +4,7 @@
 #include "ARPGEnemyBase.h"
 #include "ARPGHealthComponent.h"
 #include "ARPGMissionManager.h"
+#include "ARPGPlayerController.h"
 #include "Engine/Canvas.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -20,7 +21,11 @@ void AARPGHUD::DrawHUD()
 	const float TopY = 30.f;
 
 	DrawPlayerHealth(LeftX, TopY);
-	DrawMissionObjective(LeftX, TopY + 28.f);
+	DrawManaStatus(LeftX, TopY + 28.f);
+	DrawPotionStatus(LeftX, TopY + 56.f);
+	DrawMissionObjective(LeftX, TopY + 112.f);
+	DrawEmpowerStatus(LeftX, TopY + 140.f);
+	DrawWhirlwindStatus(LeftX, TopY + 168.f);
 	DrawBossHealth();
 	DrawCenterMessage();
 }
@@ -74,6 +79,72 @@ void AARPGHUD::DrawMissionObjective(float X, float Y)
 	}
 
 	DrawText(ObjectiveText, FColor::White, X, Y);
+}
+
+void AARPGHUD::DrawEmpowerStatus(float X, float Y)
+{
+	const AARPGPlayerController* ARPGController = Cast<AARPGPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+	if (!ARPGController)
+	{
+		DrawText(TEXT("Empower: --"), FColor::White, X, Y);
+		return;
+	}
+
+	if (ARPGController->IsEmpowered())
+	{
+		DrawText(TEXT("Empower: Active"), FColor::Green, X, Y);
+		return;
+	}
+
+	const float CooldownRemaining = ARPGController->GetEmpowerCooldownRemaining();
+	if (CooldownRemaining > 0.f)
+	{
+		DrawText(FString::Printf(TEXT("Empower: Cooldown %.1fs"), CooldownRemaining), FColor::Yellow, X, Y);
+		return;
+	}
+
+	DrawText(TEXT("Empower: Ready"), FColor::White, X, Y);
+}
+
+void AARPGHUD::DrawManaStatus(float X, float Y)
+{
+	const AARPGPlayerController* ARPGController = Cast<AARPGPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+	if (!ARPGController)
+	{
+		DrawText(TEXT("Mana: -- / --"), FColor::White, X, Y);
+		return;
+	}
+
+	DrawText(FString::Printf(TEXT("Mana: %.0f / %.0f"), ARPGController->GetCurrentMana(), ARPGController->GetMaxMana()), FColor::White, X, Y);
+}
+
+void AARPGHUD::DrawPotionStatus(float X, float Y)
+{
+	const AARPGPlayerController* ARPGController = Cast<AARPGPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+	if (!ARPGController)
+	{
+		DrawText(TEXT("Health Potion [1]: --"), FColor::White, X, Y);
+		DrawText(TEXT("Mana Potion [2]: --"), FColor::White, X, Y + 28.f);
+		return;
+	}
+
+	DrawText(FString::Printf(TEXT("Health Potion [1]: %d"), ARPGController->GetHealthPotionCount()), FColor::White, X, Y);
+	DrawText(FString::Printf(TEXT("Mana Potion [2]: %d"), ARPGController->GetManaPotionCount()), FColor::White, X, Y + 28.f);
+}
+
+void AARPGHUD::DrawWhirlwindStatus(float X, float Y)
+{
+	const AARPGPlayerController* ARPGController = Cast<AARPGPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+	if (!ARPGController)
+	{
+		DrawText(TEXT("Whirlwind: --"), FColor::White, X, Y);
+		return;
+	}
+
+	DrawText(ARPGController->IsWhirlwinding() ? TEXT("Whirlwind: Active") : TEXT("Whirlwind: Ready"),
+		ARPGController->IsWhirlwinding() ? FColor::Orange : FColor::White,
+		X,
+		Y);
 }
 
 void AARPGHUD::DrawBossHealth()

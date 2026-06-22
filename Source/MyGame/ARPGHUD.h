@@ -17,6 +17,10 @@ public:
 private:
 	void DrawPlayerHealth(float X, float Y);
 	void DrawMissionObjective(float X, float Y);
+	void DrawEmpowerStatus(float X, float Y);
+	void DrawManaStatus(float X, float Y);
+	void DrawPotionStatus(float X, float Y);
+	void DrawWhirlwindStatus(float X, float Y);
 	void DrawBossHealth();
 	void DrawCenterMessage();
 };

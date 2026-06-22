@@ -98,7 +98,43 @@ void UARPGHealthComponent::ApplyDamage(float DamageAmount)
 	UE_LOG(LogMyGame, Warning, TEXT("%s took %.1f damage, HP: %.1f -> %.1f / %.1f"), *OwnerName, DamageAmount, OldHealth, CurrentHealth, MaxHealth);
 }
 
+void UARPGHealthComponent::RestoreHealth(float Amount)
+{
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	const FString OwnerName = OwnerActor ? OwnerActor->GetName() : TEXT("UnknownOwner");
+	if (OwnerActor && (OwnerActor->IsTemplate() || OwnerName.StartsWith(TEXT("Default__"))))
+	{
+		return;
+	}
+
+	if (!bHealthInitialized)
+	{
+		InitializeHealth(false);
+	}
+
+	if (IsDead())
+	{
+		return;
+	}
+
+	const float OldHealth = CurrentHealth;
+	CurrentHealth = FMath::Clamp(CurrentHealth + Amount, 0.f, MaxHealth);
+	bIsDead = CurrentHealth <= 0.f;
+
+	UE_LOG(LogMyGame, Log, TEXT("%s restored health: %.1f -> %.1f / %.1f"), *OwnerName, OldHealth, CurrentHealth, MaxHealth);
+}
+
 void UARPGHealthComponent::SetInvincible(bool bNewInvincible)
 {
 	bIsInvincible = bNewInvincible;
+}
+
+float UARPGHealthComponent::GetHealthPercent() const
+{
+	return MaxHealth > 0.f ? FMath::Clamp(CurrentHealth / MaxHealth, 0.f, 1.f) : 0.f;
 }
