@@ -25,6 +25,9 @@ public:
 	TSubclassOf<AARPGEnemyBase> EnemyClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawner")
+	TArray<TSubclassOf<AARPGEnemyBase>> EnemyClasses;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawner")
 	int32 SpawnCount = 3;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spawner")

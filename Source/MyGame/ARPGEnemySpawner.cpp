@@ -25,9 +25,9 @@ void AARPGEnemySpawner::SpawnEnemies()
 {
 	UE_LOG(LogMyGame, Log, TEXT("EnemySpawner started"));
 
-	if (!EnemyClass)
+	if (!EnemyClass && EnemyClasses.Num() == 0)
 	{
-		UE_LOG(LogMyGame, Warning, TEXT("EnemyClass is null"));
+		UE_LOG(LogMyGame, Warning, TEXT("EnemyClass is null and EnemyClasses is empty"));
 		return;
 	}
 
@@ -67,7 +67,23 @@ void AARPGEnemySpawner::SpawnEnemies()
 		FActorSpawnParameters SpawnParameters;
 		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-		AARPGEnemyBase* SpawnedEnemy = World->SpawnActor<AARPGEnemyBase>(EnemyClass, SpawnLocation, SpawnRotation, SpawnParameters);
+		TSubclassOf<AARPGEnemyBase> SelectedEnemyClass = EnemyClass;
+		if (EnemyClasses.Num() > 0)
+		{
+			SelectedEnemyClass = EnemyClasses[FMath::RandRange(0, EnemyClasses.Num() - 1)];
+			if (!SelectedEnemyClass)
+			{
+				SelectedEnemyClass = EnemyClass;
+			}
+		}
+
+		if (!SelectedEnemyClass)
+		{
+			UE_LOG(LogMyGame, Warning, TEXT("EnemySpawner skipped null enemy class"));
+			continue;
+		}
+
+		AARPGEnemyBase* SpawnedEnemy = World->SpawnActor<AARPGEnemyBase>(SelectedEnemyClass, SpawnLocation, SpawnRotation, SpawnParameters);
 		if (SpawnedEnemy)
 		{
 			if (SpawnedEnemy->GetController() == nullptr)

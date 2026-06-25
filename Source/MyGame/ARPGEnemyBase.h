@@ -19,12 +19,21 @@ enum class EARPGBossPhase : uint8
 	Dead
 };
 
+UENUM(BlueprintType)
+enum class EARPGEnemyCombatType : uint8
+{
+	Melee,
+	Mage,
+	Thrower
+};
+
 UENUM()
 enum class EBossPhase3SkillType : uint8
 {
 	FireRain,
 	IceSpear,
-	Thunder
+	Thunder,
+	BlinkSlash
 };
 
 USTRUCT()
@@ -89,6 +98,31 @@ struct FARPGPhase3ThunderOrb
 	bool bHitPlayer = false;
 };
 
+USTRUCT()
+struct FARPGEnemyMageProjectile
+{
+	GENERATED_BODY()
+
+	FVector Location = FVector::ZeroVector;
+	FVector Direction = FVector::ZeroVector;
+	float TraveledDistance = 0.f;
+	bool bActive = false;
+	bool bHitPlayer = false;
+};
+
+USTRUCT()
+struct FARPGEnemyThrowerFireZone
+{
+	GENERATED_BODY()
+
+	FVector Center = FVector::ZeroVector;
+	float ImpactTime = 0.f;
+	float GroundEndTime = 0.f;
+	float NextGroundDamageTime = 0.f;
+	bool bHasImpacted = false;
+	bool bActive = false;
+};
+
 UCLASS(Blueprintable)
 class MYGAME_API AARPGEnemyBase : public ACharacter
 {
@@ -125,6 +159,20 @@ protected:
 	UARPGHealthComponent* ResolveHealthComponent();
 
 	void UpdateSimpleAI(float DeltaTime);
+	void UpdateMeleeAI(float DeltaTime);
+	void UpdateMageAI(float DeltaTime);
+	void StartMageAttack(AActor* TargetActor);
+	void HandleMageAttackWindup(float DeltaTime);
+	void LaunchMageProjectile();
+	void UpdateMageProjectiles(float DeltaTime);
+	void DrawMageAttackDebug(float Duration) const;
+	void UpdateThrowerAI(float DeltaTime);
+	void StartThrowerAttack(AActor* TargetActor);
+	void HandleThrowerAttackWindup(float DeltaTime);
+	void LaunchThrowerFireZone();
+	void UpdateThrowerFireZones(float DeltaTime);
+	void ResolveThrowerFireImpact(FARPGEnemyThrowerFireZone& Zone);
+	void DrawEnemyFireCircle(const FVector& Center, float Radius, const FColor& Color, float Duration, float Thickness) const;
 	void EnterBossPhase2();
 	void HandleBossPhase2Transition(float DeltaTime);
 	void FinishBossPhase2Transition();
@@ -182,6 +230,7 @@ protected:
 	void StartBossPhase3SkillRecovery();
 	void HandleBossPhase3SkillRecovery(float DeltaTime);
 	bool TryUseRandomBossPhase3Skill(AActor* TargetActor);
+	bool AreBossPhase3SummonedMinionsAllDead() const;
 	float DistancePointToSegment2D(const FVector& Point, const FVector& SegmentStart, const FVector& SegmentEnd) const;
 	void FaceDirection(const FVector& Direction, float DeltaTime);
 	void PlayHitFeedback();
@@ -227,6 +276,66 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AI")
 	float EnemyFacingInterpSpeed = 8.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Type")
+	EARPGEnemyCombatType EnemyCombatType = EARPGEnemyCombatType::Melee;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageAttackRange = 850.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MagePreferredDistance = 600.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageTooCloseDistance = 320.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageAttackCooldown = 2.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageAttackWindup = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageProjectileSpeed = 650.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageProjectileMaxDistance = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageProjectileRadius = 45.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Mage")
+	float MageProjectileDamage = 18.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerAttackRange = 760.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerPreferredDistance = 520.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerAttackCooldown = 3.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerAttackWindup = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerImpactDelay = 0.8f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerFireRadius = 120.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerImpactDamage = 12.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerFireGroundDamage = 3.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerFireGroundDuration = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy|Thrower")
+	float ThrowerFireGroundDamageInterval = 0.6f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss")
 	bool bEnableBossSlam = true;
 
@@ -252,13 +361,13 @@ protected:
 	float BossConeAngleDegrees = 60.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cone")
-	float BossConeDamage = 12.f;
+	float BossConeDamage = 10.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cone")
 	float BossConeCooldown = 4.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cone")
-	float BossConeWindup = 0.7f;
+	float BossConeWindup = 0.8f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cone")
 	float BossConeSlowMultiplier = 0.75f;
@@ -276,13 +385,13 @@ protected:
 	float BossBarrageOrbRadius = 45.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Barrage")
-	float BossBarrageOrbSpeed = 320.f;
+	float BossBarrageOrbSpeed = 300.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Barrage")
 	float BossBarrageMaxDistance = 760.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Barrage")
-	float BossBarrageDamage = 10.f;
+	float BossBarrageDamage = 8.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Barrage")
 	float BossBarrageCooldown = 6.0f;
@@ -309,16 +418,16 @@ protected:
 	float BossLongSlashWidth = 120.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
-	float BossLongSlashDamage = 35.f;
+	float BossLongSlashDamage = 32.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
 	float BossLongSlashCooldown = 5.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
-	float BossLongSlashWindup = 1.1f;
+	float BossLongSlashWindup = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
-	float BossLongSlashRecovery = 0.8f;
+	float BossLongSlashRecovery = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
 	bool bEnableBossRandomSlash = true;
@@ -333,7 +442,7 @@ protected:
 	float BossRandomSlashWidth = 80.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
-	float BossRandomSlashDamage = 18.f;
+	float BossRandomSlashDamage = 14.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2")
 	float BossRandomSlashCooldown = 8.0f;
@@ -369,7 +478,7 @@ protected:
 	float BossPhase2WaveRadius = 55.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2Wave")
-	float BossPhase2WaveDamage = 22.f;
+	float BossPhase2WaveDamage = 18.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase2Wave")
 	float BossPhase2WaveStartOffset = 90.f;
@@ -408,19 +517,25 @@ protected:
 	TSubclassOf<AARPGEnemyBase> BossPhase3MinionClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
+	TArray<TSubclassOf<AARPGEnemyBase>> BossPhase3MinionClasses;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
 	int32 BossPhase3MinionCount = 3;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
 	float BossPhase3MinionSpawnRadius = 480.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
-	float BossPhase3GlobalSkillGap = 1.6f;
+	float BossPhase3GlobalSkillGap = 1.8f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
-	float BossPhase3SkillRecovery = 0.8f;
+	float BossPhase3SkillRecovery = 0.9f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3")
 	float BossPhase3MinionSpawnZOffset = 50.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3BlinkSlash")
+	bool bEnableBossPhase3BlinkSlash = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
 	bool bEnableBossPhase3FireRain = true;
@@ -438,16 +553,16 @@ protected:
 	float BossPhase3FireRainSpawnInterval = 0.25f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
-	float BossPhase3FireRainImpactDamage = 22.f;
+	float BossPhase3FireRainImpactDamage = 18.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
 	float BossPhase3FireGroundDuration = 5.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
-	float BossPhase3FireGroundDamage = 6.f;
+	float BossPhase3FireGroundDamage = 4.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
-	float BossPhase3FireGroundDamageInterval = 0.5f;
+	float BossPhase3FireGroundDamageInterval = 0.75f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3FireRain")
 	float BossPhase3FireRainArenaRadius = 850.f;
@@ -483,7 +598,7 @@ protected:
 	float BossPhase3IceSpearDamage = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3Ice")
-	float BossPhase3IceBuildupPerHit = 45.f;
+	float BossPhase3IceBuildupPerHit = 40.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3Ice")
 	float BossPhase3IceSpearCooldown = 5.0f;
@@ -513,10 +628,10 @@ protected:
 	float BossPhase3ThunderOrbRadius = 42.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3Thunder")
-	float BossPhase3ThunderDamage = 12.f;
+	float BossPhase3ThunderDamage = 10.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3Thunder")
-	float BossPhase3ShockBuildupPerHit = 66.f;
+	float BossPhase3ShockBuildupPerHit = 50.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Phase3Thunder")
 	float BossPhase3ThunderCooldown = 6.5f;
@@ -550,10 +665,17 @@ protected:
 	bool bIsBossPhase3SkillRecovering = false;
 	bool bHasLastBossPhase3SkillUsed = false;
 	bool bHasEnteredPhase3 = false;
+	bool bHasLoggedBossPhase3BlinkSlashLocked = false;
 	bool bNextBossSkillUseCone = true;
 	bool bNextPhase2SkillUseLongSlash = true;
+	bool bIsPreparingMageAttack = false;
+	bool bIsPreparingThrowerAttack = false;
 	float EnemyAttackResolveTime = 0.f;
 	float LastEnemyAttackTime = -999.f;
+	float MageAttackResolveTime = 0.f;
+	float LastMageAttackTime = -999.f;
+	float ThrowerAttackResolveTime = 0.f;
+	float LastThrowerAttackTime = -999.f;
 	float BossSlamResolveTime = 0.f;
 	float LastBossSlamTime = -999.f;
 	float BossConeResolveTime = 0.f;
@@ -590,6 +712,10 @@ protected:
 	TWeakObjectPtr<AActor> PendingBossConeTarget;
 	TWeakObjectPtr<AActor> PendingBossBarrageTarget;
 	TWeakObjectPtr<AActor> PendingBossLongSlashTarget;
+	TArray<TWeakObjectPtr<AARPGEnemyBase>> BossPhase3SummonedMinions;
+	int32 BossPhase3SummonedMinionTargetCount = 3;
+	FVector MageAttackDirection = FVector::ZeroVector;
+	FVector PendingThrowerTargetLocation = FVector::ZeroVector;
 	FVector BossLongSlashDirection = FVector::ZeroVector;
 	FVector BossRandomSlashBaseDirection = FVector::ZeroVector;
 	FVector BossPhase3CurrentSafeZoneCenter = FVector::ZeroVector;
@@ -601,4 +727,6 @@ protected:
 	TArray<FARPGPhase3FireRainZone> ActiveBossPhase3FireRainZones;
 	TArray<FARPGPhase3IceSpear> ActiveBossPhase3IceSpears;
 	TArray<FARPGPhase3ThunderOrb> ActiveBossPhase3ThunderOrbs;
+	TArray<FARPGEnemyMageProjectile> ActiveMageProjectiles;
+	TArray<FARPGEnemyThrowerFireZone> ActiveThrowerFireZones;
 };

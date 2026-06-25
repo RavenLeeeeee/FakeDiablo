@@ -43,6 +43,8 @@ void AARPGEnemyBase::BeginPlay()
 	NextBossPhase3SkillAllowedTime = 0.f;
 	BossPhase3SkillRecoveryEndTime = 0.f;
 	bHasLastBossPhase3SkillUsed = false;
+	bHasLoggedBossPhase3BlinkSlashLocked = false;
+	BossPhase3SummonedMinions.Empty();
 
 	UARPGHealthComponent* InstanceHealth = ResolveHealthComponent();
 	if (InstanceHealth)
@@ -241,6 +243,23 @@ void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
 		return;
 	}
 
+	if (!bIsBoss)
+	{
+		switch (EnemyCombatType)
+		{
+		case EARPGEnemyCombatType::Mage:
+			UpdateMageAI(DeltaTime);
+			return;
+		case EARPGEnemyCombatType::Thrower:
+			UpdateThrowerAI(DeltaTime);
+			return;
+		case EARPGEnemyCombatType::Melee:
+		default:
+			UpdateMeleeAI(DeltaTime);
+			return;
+		}
+	}
+
 	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
 	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
 	if (!PlayerPawn)
@@ -323,6 +342,10 @@ void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
 		{
 			bIsExecutingBossRandomSlash = false;
 			UE_LOG(LogMyGame, Log, TEXT("Boss Random Slash ended"));
+			if (bIsBoss && BossPhase == EARPGBossPhase::Phase3)
+			{
+				StartBossPhase3SkillRecovery();
+			}
 		}
 
 		return;
@@ -493,6 +516,546 @@ void AARPGEnemyBase::UpdateSimpleAI(float DeltaTime)
 	}
 }
 
+void AARPGEnemyBase::UpdateMeleeAI(float DeltaTime)
+{
+	if (bIsDead || !GetWorld())
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	if (bIsPreparingAttack)
+	{
+		AActor* FacingTarget = PendingAttackTarget.IsValid() ? PendingAttackTarget.Get() : PlayerPawn;
+		if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+		{
+			MovementComponent->StopMovementImmediately();
+		}
+
+		if (FacingTarget)
+		{
+			FVector FacingDirection = FacingTarget->GetActorLocation() - GetActorLocation();
+			FacingDirection.Z = 0.f;
+			FaceDirection(FacingDirection, DeltaTime);
+		}
+
+		DrawEnemyAttackRangeDebug(0.05f);
+
+		if (GetWorld()->GetTimeSeconds() >= EnemyAttackResolveTime)
+		{
+			ResolveEnemyAttack();
+		}
+
+		return;
+	}
+
+	FVector EnemyLocation = GetActorLocation();
+	FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	EnemyLocation.Z = 0.f;
+	PlayerLocation.Z = 0.f;
+
+	const float DistanceToPlayer = FVector::Dist2D(EnemyLocation, PlayerLocation);
+	if (DistanceToPlayer > AggroRange)
+	{
+		return;
+	}
+
+	FVector Direction = PlayerLocation - EnemyLocation;
+	Direction.Z = 0.f;
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector MoveDirection = Direction.GetSafeNormal();
+	if (DistanceToPlayer > AttackRange)
+	{
+		AddMovementInput(MoveDirection, 1.f);
+		FaceDirection(MoveDirection, DeltaTime);
+		return;
+	}
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FaceDirection(MoveDirection, DeltaTime);
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastEnemyAttackTime >= EnemyAttackCooldown)
+	{
+		StartEnemyAttack(PlayerPawn, DeltaTime);
+	}
+}
+
+void AARPGEnemyBase::UpdateMageAI(float DeltaTime)
+{
+	if (bIsDead || !GetWorld())
+	{
+		return;
+	}
+
+	UpdateMageProjectiles(DeltaTime);
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	if (bIsPreparingMageAttack)
+	{
+		HandleMageAttackWindup(DeltaTime);
+		return;
+	}
+
+	FVector EnemyLocation = GetActorLocation();
+	FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	EnemyLocation.Z = 0.f;
+	PlayerLocation.Z = 0.f;
+
+	const float DistanceToPlayer = FVector::Dist2D(EnemyLocation, PlayerLocation);
+	if (DistanceToPlayer > AggroRange)
+	{
+		return;
+	}
+
+	FVector Direction = PlayerLocation - EnemyLocation;
+	Direction.Z = 0.f;
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector MoveDirection = Direction.GetSafeNormal();
+	if (DistanceToPlayer > MagePreferredDistance)
+	{
+		AddMovementInput(MoveDirection, 1.f);
+	}
+	else if (DistanceToPlayer < MageTooCloseDistance)
+	{
+		AddMovementInput(-MoveDirection, 0.75f);
+	}
+	else if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FaceDirection(MoveDirection, DeltaTime);
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (DistanceToPlayer <= MageAttackRange && CurrentTime - LastMageAttackTime >= MageAttackCooldown)
+	{
+		StartMageAttack(PlayerPawn);
+	}
+}
+
+void AARPGEnemyBase::StartMageAttack(AActor* TargetActor)
+{
+	if (bIsDead || bIsPreparingMageAttack || !TargetActor || !GetWorld())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastMageAttackTime < MageAttackCooldown)
+	{
+		return;
+	}
+
+	FVector Direction = TargetActor->GetActorLocation() - GetActorLocation();
+	Direction.Z = 0.f;
+	MageAttackDirection = Direction.IsNearlyZero() ? GetActorForwardVector() : Direction.GetSafeNormal();
+	MageAttackDirection.Z = 0.f;
+	MageAttackDirection = MageAttackDirection.IsNearlyZero() ? FVector::ForwardVector : MageAttackDirection.GetSafeNormal();
+
+	bIsPreparingMageAttack = true;
+	LastMageAttackTime = CurrentTime;
+	MageAttackResolveTime = CurrentTime + FMath::Max(0.f, MageAttackWindup);
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FaceDirection(MageAttackDirection, 0.1f);
+	UE_LOG(LogMyGame, Log, TEXT("Mage attack windup started"));
+}
+
+void AARPGEnemyBase::HandleMageAttackWindup(float DeltaTime)
+{
+	if (bIsDead || !GetWorld())
+	{
+		bIsPreparingMageAttack = false;
+		return;
+	}
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FaceDirection(MageAttackDirection, DeltaTime);
+	DrawMageAttackDebug(0.05f);
+
+	if (GetWorld()->GetTimeSeconds() >= MageAttackResolveTime)
+	{
+		bIsPreparingMageAttack = false;
+		LaunchMageProjectile();
+	}
+}
+
+void AARPGEnemyBase::LaunchMageProjectile()
+{
+	if (bIsDead || !GetWorld())
+	{
+		return;
+	}
+
+	FVector Direction = MageAttackDirection;
+	Direction.Z = 0.f;
+	Direction = Direction.IsNearlyZero() ? GetActorForwardVector() : Direction.GetSafeNormal();
+	Direction.Z = 0.f;
+	Direction = Direction.IsNearlyZero() ? FVector::ForwardVector : Direction.GetSafeNormal();
+
+	FARPGEnemyMageProjectile Projectile;
+	Projectile.Direction = Direction;
+	Projectile.Location = GetActorLocation() + Direction * 80.f + FVector(0.f, 0.f, 55.f);
+	Projectile.TraveledDistance = 0.f;
+	Projectile.bActive = true;
+	Projectile.bHitPlayer = false;
+	ActiveMageProjectiles.Add(Projectile);
+
+	UE_LOG(LogMyGame, Log, TEXT("Mage projectile launched"));
+}
+
+void AARPGEnemyBase::UpdateMageProjectiles(float DeltaTime)
+{
+	if (!GetWorld() || ActiveMageProjectiles.Num() == 0)
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	UARPGHealthComponent* PlayerHealthComponent = PlayerPawn ? PlayerPawn->FindComponentByClass<UARPGHealthComponent>() : nullptr;
+
+	const float DeltaDistance = FMath::Max(0.f, MageProjectileSpeed) * DeltaTime;
+	const float MaxDistance = FMath::Max(0.f, MageProjectileMaxDistance);
+	const float HitRadius = FMath::Max(1.f, MageProjectileRadius);
+
+	for (FARPGEnemyMageProjectile& Projectile : ActiveMageProjectiles)
+	{
+		if (!Projectile.bActive)
+		{
+			continue;
+		}
+
+		Projectile.Location += Projectile.Direction * DeltaDistance;
+		Projectile.TraveledDistance += DeltaDistance;
+		DrawDebugSphere(GetWorld(), Projectile.Location, HitRadius, 12, FColor::Cyan, false, 0.05f, 0, 2.f);
+
+		if (Projectile.TraveledDistance >= MaxDistance)
+		{
+			Projectile.bActive = false;
+			continue;
+		}
+
+		if (PlayerPawn
+			&& PlayerHealthComponent
+			&& !PlayerHealthComponent->IsDead()
+			&& !Projectile.bHitPlayer
+			&& FVector::Dist2D(PlayerPawn->GetActorLocation(), Projectile.Location) <= HitRadius + 40.f)
+		{
+			Projectile.bHitPlayer = true;
+			Projectile.bActive = false;
+			PlayerHealthComponent->ApplyDamage(MageProjectileDamage);
+			UE_LOG(LogMyGame, Log, TEXT("Mage projectile hit player"));
+			DrawDebugSphere(GetWorld(), PlayerPawn->GetActorLocation(), 50.f, 12, FColor::Red, false, 0.3f);
+		}
+	}
+
+	ActiveMageProjectiles.RemoveAll([](const FARPGEnemyMageProjectile& Projectile)
+	{
+		return !Projectile.bActive;
+	});
+}
+
+void AARPGEnemyBase::DrawMageAttackDebug(float Duration) const
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	FVector Direction = MageAttackDirection;
+	Direction.Z = 0.f;
+	Direction = Direction.IsNearlyZero() ? GetActorForwardVector() : Direction.GetSafeNormal();
+	Direction.Z = 0.f;
+	Direction = Direction.IsNearlyZero() ? FVector::ForwardVector : Direction.GetSafeNormal();
+
+	const FVector Start = GetActorLocation() + FVector(0.f, 0.f, 55.f);
+	const FVector End = Start + Direction * MageProjectileMaxDistance;
+	DrawDebugLine(GetWorld(), Start, End, FColor::Cyan, false, Duration, 0, 2.f);
+}
+
+void AARPGEnemyBase::UpdateThrowerAI(float DeltaTime)
+{
+	if (bIsDead || !GetWorld())
+	{
+		return;
+	}
+
+	UpdateThrowerFireZones(DeltaTime);
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	if (bIsPreparingThrowerAttack)
+	{
+		HandleThrowerAttackWindup(DeltaTime);
+		return;
+	}
+
+	FVector EnemyLocation = GetActorLocation();
+	FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	EnemyLocation.Z = 0.f;
+	PlayerLocation.Z = 0.f;
+
+	const float DistanceToPlayer = FVector::Dist2D(EnemyLocation, PlayerLocation);
+	if (DistanceToPlayer > AggroRange)
+	{
+		return;
+	}
+
+	FVector Direction = PlayerLocation - EnemyLocation;
+	Direction.Z = 0.f;
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector MoveDirection = Direction.GetSafeNormal();
+	if (DistanceToPlayer > ThrowerPreferredDistance)
+	{
+		AddMovementInput(MoveDirection, 1.f);
+	}
+	else if (DistanceToPlayer < ThrowerPreferredDistance * 0.65f)
+	{
+		AddMovementInput(-MoveDirection, 0.65f);
+	}
+	else if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FaceDirection(MoveDirection, DeltaTime);
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (DistanceToPlayer <= ThrowerAttackRange && CurrentTime - LastThrowerAttackTime >= ThrowerAttackCooldown)
+	{
+		StartThrowerAttack(PlayerPawn);
+	}
+}
+
+void AARPGEnemyBase::StartThrowerAttack(AActor* TargetActor)
+{
+	if (bIsDead || bIsPreparingThrowerAttack || !TargetActor || !GetWorld())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastThrowerAttackTime < ThrowerAttackCooldown)
+	{
+		return;
+	}
+
+	PendingThrowerTargetLocation = TargetActor->GetActorLocation();
+	PendingThrowerTargetLocation.Z = GetActorLocation().Z + 10.f;
+	bIsPreparingThrowerAttack = true;
+	LastThrowerAttackTime = CurrentTime;
+	ThrowerAttackResolveTime = CurrentTime + FMath::Max(0.f, ThrowerAttackWindup);
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	FVector FacingDirection = TargetActor->GetActorLocation() - GetActorLocation();
+	FacingDirection.Z = 0.f;
+	FaceDirection(FacingDirection, 0.1f);
+	UE_LOG(LogMyGame, Log, TEXT("Thrower attack windup started"));
+}
+
+void AARPGEnemyBase::HandleThrowerAttackWindup(float DeltaTime)
+{
+	if (bIsDead || !GetWorld())
+	{
+		bIsPreparingThrowerAttack = false;
+		return;
+	}
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (PlayerPawn)
+	{
+		FVector FacingDirection = PlayerPawn->GetActorLocation() - GetActorLocation();
+		FacingDirection.Z = 0.f;
+		FaceDirection(FacingDirection, DeltaTime);
+	}
+
+	DrawEnemyFireCircle(PendingThrowerTargetLocation, ThrowerFireRadius, FColor::Red, 0.05f, 3.f);
+
+	if (GetWorld()->GetTimeSeconds() >= ThrowerAttackResolveTime)
+	{
+		bIsPreparingThrowerAttack = false;
+		LaunchThrowerFireZone();
+	}
+}
+
+void AARPGEnemyBase::LaunchThrowerFireZone()
+{
+	if (bIsDead || !GetWorld())
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	const float ImpactDelay = FMath::Max(0.f, ThrowerImpactDelay);
+
+	FARPGEnemyThrowerFireZone Zone;
+	Zone.Center = PendingThrowerTargetLocation;
+	Zone.ImpactTime = CurrentTime + ImpactDelay;
+	Zone.GroundEndTime = Zone.ImpactTime + FMath::Max(0.f, ThrowerFireGroundDuration);
+	Zone.NextGroundDamageTime = Zone.ImpactTime;
+	Zone.bHasImpacted = false;
+	Zone.bActive = true;
+	ActiveThrowerFireZones.Add(Zone);
+
+	UE_LOG(LogMyGame, Log, TEXT("Thrower fire zone launched"));
+}
+
+void AARPGEnemyBase::UpdateThrowerFireZones(float DeltaTime)
+{
+	if (!GetWorld() || ActiveThrowerFireZones.Num() == 0)
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	const float Radius = FMath::Max(0.f, ThrowerFireRadius);
+	const float GroundDamageInterval = FMath::Max(0.05f, ThrowerFireGroundDamageInterval);
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	UARPGHealthComponent* PlayerHealthComponent = PlayerPawn ? PlayerPawn->FindComponentByClass<UARPGHealthComponent>() : nullptr;
+
+	for (FARPGEnemyThrowerFireZone& Zone : ActiveThrowerFireZones)
+	{
+		if (!Zone.bActive)
+		{
+			continue;
+		}
+
+		if (!Zone.bHasImpacted)
+		{
+			DrawEnemyFireCircle(Zone.Center, Radius, FColor::Red, 0.05f, 3.f);
+			if (CurrentTime >= Zone.ImpactTime)
+			{
+				Zone.bHasImpacted = true;
+				ResolveThrowerFireImpact(Zone);
+			}
+		}
+
+		if (Zone.bHasImpacted)
+		{
+			DrawEnemyFireCircle(Zone.Center, Radius, FColor::Orange, 0.05f, 4.f);
+			DrawDebugSphere(GetWorld(), Zone.Center, Radius, 16, FColor::Orange, false, 0.05f, 0, 1.f);
+
+			if (CurrentTime >= Zone.GroundEndTime)
+			{
+				Zone.bActive = false;
+				continue;
+			}
+
+			if (PlayerPawn
+				&& PlayerHealthComponent
+				&& !PlayerHealthComponent->IsDead()
+				&& FVector::Dist2D(PlayerPawn->GetActorLocation(), Zone.Center) <= Radius
+				&& CurrentTime >= Zone.NextGroundDamageTime)
+			{
+				PlayerHealthComponent->ApplyDamage(ThrowerFireGroundDamage);
+				Zone.NextGroundDamageTime = CurrentTime + GroundDamageInterval;
+				UE_LOG(LogMyGame, Log, TEXT("Thrower fire ground damaged player"));
+			}
+		}
+	}
+
+	ActiveThrowerFireZones.RemoveAll([](const FARPGEnemyThrowerFireZone& Zone)
+	{
+		return !Zone.bActive;
+	});
+}
+
+void AARPGEnemyBase::ResolveThrowerFireImpact(FARPGEnemyThrowerFireZone& Zone)
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	UARPGHealthComponent* PlayerHealthComponent = PlayerPawn ? PlayerPawn->FindComponentByClass<UARPGHealthComponent>() : nullptr;
+	if (PlayerPawn
+		&& PlayerHealthComponent
+		&& !PlayerHealthComponent->IsDead()
+		&& FVector::Dist2D(PlayerPawn->GetActorLocation(), Zone.Center) <= FMath::Max(0.f, ThrowerFireRadius))
+	{
+		PlayerHealthComponent->ApplyDamage(ThrowerImpactDamage);
+		UE_LOG(LogMyGame, Log, TEXT("Thrower fire impact hit player"));
+		DrawDebugSphere(GetWorld(), PlayerPawn->GetActorLocation(), 55.f, 12, FColor::Red, false, 0.3f);
+	}
+	else
+	{
+		UE_LOG(LogMyGame, Log, TEXT("Thrower fire impact missed"));
+	}
+}
+
+void AARPGEnemyBase::DrawEnemyFireCircle(const FVector& Center, float Radius, const FColor& Color, float Duration, float Thickness) const
+{
+	if (!GetWorld() || Radius <= 0.f)
+	{
+		return;
+	}
+
+	const int32 SegmentCount = 24;
+	FVector PreviousPoint = Center + FVector(Radius, 0.f, 0.f);
+	for (int32 Index = 1; Index <= SegmentCount; ++Index)
+	{
+		const float AngleRadians = FMath::DegreesToRadians(360.f * static_cast<float>(Index) / static_cast<float>(SegmentCount));
+		const FVector CurrentPoint = Center + FVector(FMath::Cos(AngleRadians) * Radius, FMath::Sin(AngleRadians) * Radius, 0.f);
+		DrawDebugLine(GetWorld(), PreviousPoint, CurrentPoint, Color, false, Duration, 0, Thickness);
+		PreviousPoint = CurrentPoint;
+	}
+}
+
 void AARPGEnemyBase::EnterBossPhase2()
 {
 	if (!bIsBoss || BossPhase != EARPGBossPhase::Phase1)
@@ -514,6 +1077,14 @@ void AARPGEnemyBase::EnterBossPhase2()
 	bIsRecoveringBossLongSlash = false;
 	bIsPreparingBossRandomSlash = false;
 	bIsExecutingBossRandomSlash = false;
+	bIsPreparingMageAttack = false;
+	bIsPreparingThrowerAttack = false;
+	MageAttackResolveTime = 0.f;
+	MageAttackDirection = FVector::ZeroVector;
+	ThrowerAttackResolveTime = 0.f;
+	PendingThrowerTargetLocation = FVector::ZeroVector;
+	ActiveMageProjectiles.Empty();
+	ActiveThrowerFireZones.Empty();
 	bIsBossPhase2WaveAttackActive = false;
 	ActiveBossPhase2WaveOrbs.Empty();
 	BossPhase2WaveCurrentLoop = 0;
@@ -826,6 +1397,20 @@ bool AARPGEnemyBase::TryUseRandomBossPhase3Skill(AActor* TargetActor)
 		AvailableSkills.Add(EBossPhase3SkillType::Thunder);
 	}
 
+	if (bEnableBossPhase3BlinkSlash && CurrentTime - LastBossRandomSlashTime >= BossRandomSlashCooldown)
+	{
+		if (AreBossPhase3SummonedMinionsAllDead())
+		{
+			AvailableSkills.Add(EBossPhase3SkillType::BlinkSlash);
+			bHasLoggedBossPhase3BlinkSlashLocked = false;
+		}
+		else if (!bHasLoggedBossPhase3BlinkSlashLocked)
+		{
+			bHasLoggedBossPhase3BlinkSlashLocked = true;
+			UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 BlinkSlash locked: summoned minions still alive."));
+		}
+	}
+
 	if (AvailableSkills.Num() == 0)
 	{
 		return false;
@@ -857,9 +1442,41 @@ bool AARPGEnemyBase::TryUseRandomBossPhase3Skill(AActor* TargetActor)
 		bHasLastBossPhase3SkillUsed = true;
 		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 random skill selected: Thunder"));
 		return true;
+	case EBossPhase3SkillType::BlinkSlash:
+		StartBossRandomSlash(TargetActor);
+		LastBossPhase3SkillUsed = SelectedSkill;
+		bHasLastBossPhase3SkillUsed = true;
+		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 random skill selected: BlinkSlash"));
+		return true;
 	default:
 		return false;
 	}
+}
+
+bool AARPGEnemyBase::AreBossPhase3SummonedMinionsAllDead() const
+{
+	if (!bHasBossPhase3SummonedMinions)
+	{
+		return false;
+	}
+
+	if (BossPhase3SummonedMinions.Num() < BossPhase3SummonedMinionTargetCount)
+	{
+		return false;
+	}
+
+	for (const TWeakObjectPtr<AARPGEnemyBase>& MinionPtr : BossPhase3SummonedMinions)
+	{
+		if (const AARPGEnemyBase* Minion = MinionPtr.Get())
+		{
+			if (!Minion->IsDead())
+			{
+				return false;
+			}
+		}
+	}
+
+	return true;
 }
 
 void AARPGEnemyBase::StartBossPhase3SkillRecovery()
@@ -932,6 +1549,7 @@ void AARPGEnemyBase::EnterBossPhase3()
 	bIsBossPhase3SkillRecovering = false;
 	BossPhase3SkillRecoveryEndTime = 0.f;
 	bHasLastBossPhase3SkillUsed = false;
+	bHasLoggedBossPhase3BlinkSlashLocked = false;
 	bIsPreparingAttack = false;
 	PendingAttackTarget = nullptr;
 	bIsPreparingBossSlam = false;
@@ -947,6 +1565,14 @@ void AARPGEnemyBase::EnterBossPhase3()
 	bIsRecoveringBossLongSlash = false;
 	bIsPreparingBossRandomSlash = false;
 	bIsExecutingBossRandomSlash = false;
+	bIsPreparingMageAttack = false;
+	bIsPreparingThrowerAttack = false;
+	MageAttackResolveTime = 0.f;
+	MageAttackDirection = FVector::ZeroVector;
+	ThrowerAttackResolveTime = 0.f;
+	PendingThrowerTargetLocation = FVector::ZeroVector;
+	ActiveMageProjectiles.Empty();
+	ActiveThrowerFireZones.Empty();
 	bIsBossPhase2WaveAttackActive = false;
 	ActiveBossPhase2WaveOrbs.Empty();
 	BossPhase2WaveCurrentLoop = 0;
@@ -961,6 +1587,7 @@ void AARPGEnemyBase::EnterBossPhase3()
 	BossLongSlashDirection = FVector::ZeroVector;
 	BossRandomSlashExecutedCount = 0;
 	BossRandomSlashBaseDirection = FVector::ZeroVector;
+	BossPhase3SummonedMinions.Empty();
 
 	UE_LOG(LogMyGame, Log, TEXT("Boss entered Phase 3"));
 	StartBossPhase3Ultimate();
@@ -1576,9 +2203,13 @@ void AARPGEnemyBase::DrawBossLongSlashDebug(float Duration) const
 
 void AARPGEnemyBase::StartBossRandomSlash(AActor* TargetActor)
 {
+	const bool bCanUsePhase2RandomSlash = BossPhase == EARPGBossPhase::Phase2 && bEnableBossRandomSlash;
+	const bool bCanUsePhase3BlinkSlash = BossPhase == EARPGBossPhase::Phase3
+		&& bEnableBossPhase3BlinkSlash
+		&& AreBossPhase3SummonedMinionsAllDead();
+
 	if (!bIsBoss
-		|| BossPhase != EARPGBossPhase::Phase2
-		|| !bEnableBossRandomSlash
+		|| (!bCanUsePhase2RandomSlash && !bCanUsePhase3BlinkSlash)
 		|| bIsDead
 		|| bIsPreparingAttack
 		|| bIsPreparingBossCone
@@ -1586,6 +2217,11 @@ void AARPGEnemyBase::StartBossRandomSlash(AActor* TargetActor)
 		|| bIsPreparingBossSlam
 		|| bIsBossBarrageActive
 		|| bIsBossPhase2WaveAttackActive
+		|| bIsBossPhase3UltimateActive
+		|| bIsCastingBossPhase3FireRain
+		|| bIsPreparingBossPhase3IceSpear
+		|| bIsPreparingBossPhase3Thunder
+		|| bIsBossPhase3SkillRecovering
 		|| bIsPreparingBossLongSlash
 		|| bIsRecoveringBossLongSlash
 		|| bIsPreparingBossRandomSlash
@@ -1600,6 +2236,23 @@ void AARPGEnemyBase::StartBossRandomSlash(AActor* TargetActor)
 	if (CurrentTime - LastBossRandomSlashTime < BossRandomSlashCooldown)
 	{
 		return;
+	}
+
+	if (BossPhase == EARPGBossPhase::Phase3)
+	{
+		FVector TargetForward = TargetActor->GetActorForwardVector();
+		TargetForward.Z = 0.f;
+		if (TargetForward.IsNearlyZero())
+		{
+			TargetForward = TargetActor->GetActorLocation() - GetActorLocation();
+			TargetForward.Z = 0.f;
+		}
+		TargetForward = TargetForward.IsNearlyZero() ? FVector::ForwardVector : TargetForward.GetSafeNormal();
+
+		FVector BlinkLocation = TargetActor->GetActorLocation() - TargetForward * FMath::Max(120.f, AttackRange);
+		BlinkLocation.Z = TargetActor->GetActorLocation().Z;
+		SetActorLocation(BlinkLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 BlinkSlash teleported behind player"));
 	}
 
 	FVector BaseDirection = TargetActor->GetActorLocation() - GetActorLocation();
@@ -1653,7 +2306,6 @@ void AARPGEnemyBase::ExecuteOneBossRandomSlash()
 	APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
 	if (!PlayerPawn)
 	{
-		UE_LOG(LogMyGame, Log, TEXT("Boss Random Slash missed"));
 		return;
 	}
 
@@ -1673,14 +2325,12 @@ void AARPGEnemyBase::ExecuteOneBossRandomSlash()
 
 	if (!bHitPlayer)
 	{
-		UE_LOG(LogMyGame, Log, TEXT("Boss Random Slash missed"));
 		return;
 	}
 
 	UARPGHealthComponent* PlayerHealthComponent = PlayerPawn->FindComponentByClass<UARPGHealthComponent>();
 	if (!PlayerHealthComponent || PlayerHealthComponent->IsDead())
 	{
-		UE_LOG(LogMyGame, Log, TEXT("Boss Random Slash missed"));
 		return;
 	}
 
@@ -2139,8 +2789,8 @@ void AARPGEnemyBase::FinishBossPhase3Ultimate()
 	BossPhase3CurrentSafeZoneCenter = FVector::ZeroVector;
 
 	UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 ultimate finished"));
-	SummonBossPhase3Minions();
 	bIsBossPhase3UltimateActive = false;
+	SummonBossPhase3Minions();
 	UE_LOG(LogMyGame, Log, TEXT("Boss invincibility ended"));
 }
 
@@ -2155,22 +2805,30 @@ void AARPGEnemyBase::SummonBossPhase3Minions()
 		return;
 	}
 
-	TSubclassOf<AARPGEnemyBase> MinionClass = BossPhase3MinionClass;
-	if (!MinionClass)
+	BossPhase3SummonedMinions.Empty();
+	bHasLoggedBossPhase3BlinkSlashLocked = false;
+
+	TSubclassOf<AARPGEnemyBase> FallbackMinionClass = BossPhase3MinionClass;
+	if (!FallbackMinionClass)
 	{
 		UClass* LoadedMinionClass = StaticLoadClass(
 			AARPGEnemyBase::StaticClass(),
 			nullptr,
 			TEXT("/Game/Blueprint/BP_ARPGEnemyBase.BP_ARPGEnemyBase_C"));
-		MinionClass = LoadedMinionClass ? LoadedMinionClass : AARPGEnemyBase::StaticClass();
+		FallbackMinionClass = LoadedMinionClass ? LoadedMinionClass : AARPGEnemyBase::StaticClass();
 		UE_LOG(LogMyGame, Warning, TEXT("BossPhase3MinionClass is not set. Prefer setting BossPhase3MinionClass = BP_ARPGEnemyBase in the Boss Blueprint."));
 	}
 
-	const int32 SpawnCount = FMath::Max(0, BossPhase3MinionCount);
+	BossPhase3SummonedMinionTargetCount = 3;
+	BossPhase3MinionCount = BossPhase3SummonedMinionTargetCount;
+	const int32 SpawnCount = FMath::Max(0, BossPhase3SummonedMinionTargetCount);
 	if (SpawnCount <= 0)
 	{
 		bHasBossPhase3SummonedMinions = true;
 		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 minion summon result: Spawned 0 / 0"));
+		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 tracked summoned minions: %d / %d"),
+			BossPhase3SummonedMinions.Num(),
+			BossPhase3SummonedMinionTargetCount);
 		return;
 	}
 
@@ -2188,6 +2846,16 @@ void AARPGEnemyBase::SummonBossPhase3Minions()
 
 		const FRotator SpawnRotation(0.f, (-Direction).Rotation().Yaw, 0.f);
 		const FTransform SpawnTransform(SpawnRotation, SpawnLocation);
+		TSubclassOf<AARPGEnemyBase> MinionClass = FallbackMinionClass;
+		if (BossPhase3MinionClasses.Num() > 0)
+		{
+			MinionClass = BossPhase3MinionClasses[Index % BossPhase3MinionClasses.Num()];
+			if (!MinionClass)
+			{
+				MinionClass = FallbackMinionClass;
+			}
+		}
+
 		AARPGEnemyBase* Minion = GetWorld()->SpawnActorDeferred<AARPGEnemyBase>(
 			MinionClass,
 			SpawnTransform,
@@ -2206,6 +2874,7 @@ void AARPGEnemyBase::SummonBossPhase3Minions()
 		UGameplayStatics::FinishSpawningActor(Minion, SpawnTransform);
 		Minion->bIsBoss = false;
 		Minion->BossPhase = EARPGBossPhase::None;
+		BossPhase3SummonedMinions.Add(Minion);
 		Minion->SpawnDefaultController();
 		++SpawnedCount;
 
@@ -2213,6 +2882,9 @@ void AARPGEnemyBase::SummonBossPhase3Minions()
 	}
 
 	UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 minion summon result: Spawned %d / %d"), SpawnedCount, SpawnCount);
+	UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 tracked summoned minions: %d / %d"),
+		BossPhase3SummonedMinions.Num(),
+		BossPhase3SummonedMinionTargetCount);
 }
 
 void AARPGEnemyBase::StartBossPhase3FireRain(AActor* TargetActor)
@@ -2371,7 +3043,6 @@ void AARPGEnemyBase::UpdateBossPhase3FireRainZones(float DeltaTime)
 			{
 				PlayerHealthComponent->ApplyDamage(BossPhase3FireGroundDamage);
 				Zone.NextGroundDamageTime = CurrentTime + GroundDamageInterval;
-				UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 FireGround damaged player"));
 			}
 		}
 	}
@@ -2394,7 +3065,6 @@ void AARPGEnemyBase::ResolveBossPhase3FireRainImpact(FARPGPhase3FireRainZone& Zo
 	UARPGHealthComponent* PlayerHealthComponent = PlayerPawn ? PlayerPawn->FindComponentByClass<UARPGHealthComponent>() : nullptr;
 	if (!PlayerPawn || !PlayerHealthComponent || PlayerHealthComponent->IsDead())
 	{
-		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 FireRain impact missed"));
 		return;
 	}
 
@@ -2404,10 +3074,6 @@ void AARPGEnemyBase::ResolveBossPhase3FireRainImpact(FARPGPhase3FireRainZone& Zo
 		Zone.bImpactHitPlayer = true;
 		DrawDebugSphere(GetWorld(), PlayerPawn->GetActorLocation(), 65.f, 16, FColor::Red, false, 0.5f);
 		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 FireRain impact hit player"));
-	}
-	else
-	{
-		UE_LOG(LogMyGame, Log, TEXT("Boss Phase3 FireRain impact missed"));
 	}
 }
 
@@ -2912,6 +3578,14 @@ void AARPGEnemyBase::Die()
 	bIsRecoveringBossLongSlash = false;
 	bIsPreparingBossRandomSlash = false;
 	bIsExecutingBossRandomSlash = false;
+	bIsPreparingMageAttack = false;
+	bIsPreparingThrowerAttack = false;
+	MageAttackResolveTime = 0.f;
+	MageAttackDirection = FVector::ZeroVector;
+	ThrowerAttackResolveTime = 0.f;
+	PendingThrowerTargetLocation = FVector::ZeroVector;
+	ActiveMageProjectiles.Empty();
+	ActiveThrowerFireZones.Empty();
 	bIsBossPhase2WaveAttackActive = false;
 	ActiveBossPhase2WaveOrbs.Empty();
 	BossPhase2WaveCurrentLoop = 0;
@@ -2934,6 +3608,8 @@ void AARPGEnemyBase::Die()
 	NextBossPhase3SkillAllowedTime = 0.f;
 	BossPhase3SkillRecoveryEndTime = 0.f;
 	bHasLastBossPhase3SkillUsed = false;
+	bHasLoggedBossPhase3BlinkSlashLocked = false;
+	BossPhase3SummonedMinions.Empty();
 	BossPhase2TransitionEndTime = 0.f;
 	bBossPhase2TeleportCompleted = false;
 	PendingBossBarrageTarget = nullptr;
