@@ -32,6 +32,9 @@ void AARPGPlayerController::BeginPlay()
 	FInputModeGameOnly InputMode;
 	InputMode.SetConsumeCaptureMouseDown(false);
 	SetInputMode(InputMode);
+
+	UpdateMovementSpeedModifiers();
+	ApplyTemporaryPlayerMaxHealthForBossTesting();
 }
 
 void AARPGPlayerController::SetupInputComponent()
@@ -61,7 +64,19 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 		return;
 	}
 
+	ApplyTemporaryPlayerMaxHealthForBossTesting();
+
 	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (bIsMoveSpeedSlowed && CurrentTime >= MoveSpeedSlowEndTime)
+	{
+		ClearMoveSpeedSlow();
+	}
+
+	if (bIsShocked && CurrentTime >= ShockEndTime)
+	{
+		ClearShockedState();
+	}
+
 	if (bIsEmpowered)
 	{
 		UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
@@ -88,6 +103,23 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 	{
 		HandleDodgeTick(DeltaTime);
 		return;
+	}
+
+	if (bIsFrozen)
+	{
+		bHasClickMoveTarget = false;
+		ClickMoveTarget = FVector::ZeroVector;
+		StopARPGCharacterMovement();
+
+		if (CurrentTime >= FrozenEndTime)
+		{
+			ClearFrozenState();
+		}
+		else
+		{
+			UpdateActionInput();
+			return;
+		}
 	}
 
 	if (bIsAreaSkillCasting)
@@ -169,6 +201,11 @@ void AARPGPlayerController::PlayerTick(float DeltaTime)
 
 FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 {
+	if (bIsFrozen)
+	{
+		return FVector2D::ZeroVector;
+	}
+
 	FVector2D MovementInput = FVector2D::ZeroVector;
 
 	if (IsInputKeyDown(EKeys::W))
@@ -193,6 +230,11 @@ FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 
 void AARPGPlayerController::HandleLeftClickPressed()
 {
+	if (bIsFrozen)
+	{
+		return;
+	}
+
 	if (bIsDodging || bIsAreaSkillCasting || bIsPiercingSkillCasting)
 	{
 		return;
@@ -235,6 +277,11 @@ void AARPGPlayerController::HandleDodgePressed()
 {
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (!ARPGCharacter || !GetWorld())
+	{
+		return;
+	}
+
+	if (bIsFrozen)
 	{
 		return;
 	}
@@ -610,8 +657,7 @@ void AARPGPlayerController::StartEmpower()
 	bIsEmpowered = true;
 	EmpowerEndTime = CurrentTime + EmpowerDuration;
 	LastEmpowerTime = CurrentTime;
-	SavedEmpowerMaxWalkSpeed = MovementComponent->MaxWalkSpeed;
-	MovementComponent->MaxWalkSpeed = SavedEmpowerMaxWalkSpeed + EmpowerMoveSpeedBonus;
+	UpdateMovementSpeedModifiers();
 
 	UE_LOG(LogMyGame, Log, TEXT("Empower started"));
 }
@@ -624,16 +670,225 @@ void AARPGPlayerController::EndEmpower()
 	}
 
 	bIsEmpowered = false;
-
-	if (AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter())
-	{
-		if (UCharacterMovementComponent* MovementComponent = ARPGCharacter->GetCharacterMovement())
-		{
-			MovementComponent->MaxWalkSpeed = SavedEmpowerMaxWalkSpeed;
-		}
-	}
+	UpdateMovementSpeedModifiers();
 
 	UE_LOG(LogMyGame, Log, TEXT("Empower ended"));
+}
+
+void AARPGPlayerController::ApplyMoveSpeedSlow(float Multiplier, float Duration)
+{
+	if (!GetWorld() || Duration <= 0.f)
+	{
+		return;
+	}
+
+	const float ClampedMultiplier = FMath::Clamp(Multiplier, 0.1f, 1.0f);
+	bIsMoveSpeedSlowed = true;
+	MoveSpeedSlowMultiplier = ClampedMultiplier;
+	MoveSpeedSlowEndTime = GetWorld()->GetTimeSeconds() + Duration;
+	UpdateMovementSpeedModifiers();
+
+	const float SlowPercent = (1.f - ClampedMultiplier) * 100.f;
+	UE_LOG(LogMyGame, Log, TEXT("Player slowed: %.0f%% for %.1fs"), SlowPercent, Duration);
+}
+
+void AARPGPlayerController::ClearMoveSpeedSlow()
+{
+	if (!bIsMoveSpeedSlowed)
+	{
+		return;
+	}
+
+	bIsMoveSpeedSlowed = false;
+	MoveSpeedSlowEndTime = 0.f;
+	MoveSpeedSlowMultiplier = 1.0f;
+	UpdateMovementSpeedModifiers();
+
+	UE_LOG(LogMyGame, Log, TEXT("Player slow ended"));
+}
+
+void AARPGPlayerController::ApplyFreezeBuildup(float Amount)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld() || Amount <= 0.f)
+	{
+		return;
+	}
+
+	UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	if (bIsFrozen)
+	{
+		return;
+	}
+
+	const float ClampedThreshold = FMath::Max(1.f, FreezeThreshold);
+	FreezeAccumulation += Amount;
+	UE_LOG(LogMyGame, Log, TEXT("Player freeze buildup: %.1f / %.1f"), FreezeAccumulation, ClampedThreshold);
+
+	if (FreezeAccumulation >= ClampedThreshold)
+	{
+		FreezeAccumulation = 0.f;
+		StartFrozenState(FreezeDuration);
+	}
+}
+
+void AARPGPlayerController::StartFrozenState(float Duration)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld())
+	{
+		return;
+	}
+
+	const float ClampedDuration = FMath::Max(0.f, Duration);
+	bIsFrozen = true;
+	FrozenEndTime = GetWorld()->GetTimeSeconds() + ClampedDuration;
+	bHasClickMoveTarget = false;
+	ClickMoveTarget = FVector::ZeroVector;
+	StopARPGCharacterMovement();
+	UpdateMovementSpeedModifiers();
+
+	UE_LOG(LogMyGame, Log, TEXT("Player frozen for 1s"));
+}
+
+void AARPGPlayerController::ClearFrozenState()
+{
+	if (!bIsFrozen)
+	{
+		return;
+	}
+
+	bIsFrozen = false;
+	FrozenEndTime = 0.f;
+	bHasClickMoveTarget = false;
+	ClickMoveTarget = FVector::ZeroVector;
+	StopARPGCharacterMovement();
+	UpdateMovementSpeedModifiers();
+
+	UE_LOG(LogMyGame, Log, TEXT("Player freeze ended"));
+}
+
+void AARPGPlayerController::ApplyShockBuildup(float Amount)
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter || !GetWorld() || Amount <= 0.f)
+	{
+		return;
+	}
+
+	UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	if (bIsShocked)
+	{
+		StartShockedState(ShockDuration);
+		return;
+	}
+
+	const float ClampedThreshold = FMath::Max(1.f, ShockThreshold);
+	ShockAccumulation += Amount;
+	UE_LOG(LogMyGame, Log, TEXT("Player shock buildup: %.1f / %.1f"), ShockAccumulation, ClampedThreshold);
+
+	if (ShockAccumulation >= ClampedThreshold)
+	{
+		ShockAccumulation = 0.f;
+		StartShockedState(ShockDuration);
+	}
+}
+
+void AARPGPlayerController::StartShockedState(float Duration)
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	bIsShocked = true;
+	ShockEndTime = GetWorld()->GetTimeSeconds() + FMath::Max(0.f, Duration);
+	UE_LOG(LogMyGame, Log, TEXT("Player shocked: damage taken x1.5 for 5s"));
+}
+
+void AARPGPlayerController::ClearShockedState()
+{
+	if (!bIsShocked)
+	{
+		return;
+	}
+
+	bIsShocked = false;
+	ShockEndTime = 0.f;
+	ShockAccumulation = 0.f;
+	UE_LOG(LogMyGame, Log, TEXT("Player shock ended"));
+}
+
+float AARPGPlayerController::GetDamageTakenMultiplier() const
+{
+	return bIsShocked ? FMath::Max(1.f, ShockDamageTakenMultiplier) : 1.f;
+}
+
+void AARPGPlayerController::ApplyTemporaryPlayerMaxHealthForBossTesting()
+{
+	if (bHasAppliedTemporaryPlayerMaxHealth)
+	{
+		return;
+	}
+
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter)
+	{
+		return;
+	}
+
+	UARPGHealthComponent* HealthComponent = ARPGCharacter->GetHealthComponent();
+	if (!HealthComponent)
+	{
+		return;
+	}
+
+	HealthComponent->SetMaxHealth(TemporaryPlayerMaxHealthForBossTesting, true);
+	bHasAppliedTemporaryPlayerMaxHealth = true;
+	UE_LOG(LogMyGame, Log, TEXT("Player max health set to 10000"));
+}
+
+void AARPGPlayerController::UpdateMovementSpeedModifiers()
+{
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	if (!ARPGCharacter)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent = ARPGCharacter->GetCharacterMovement();
+	if (!MovementComponent)
+	{
+		return;
+	}
+
+	if (BaseNormalMaxWalkSpeed <= 0.f)
+	{
+		BaseNormalMaxWalkSpeed = MovementComponent->MaxWalkSpeed;
+	}
+
+	float FinalSpeed = BaseNormalMaxWalkSpeed;
+	if (bIsEmpowered)
+	{
+		FinalSpeed += EmpowerMoveSpeedBonus;
+	}
+
+	if (bIsMoveSpeedSlowed)
+	{
+		FinalSpeed *= MoveSpeedSlowMultiplier;
+	}
+
+	MovementComponent->MaxWalkSpeed = FinalSpeed;
 }
 
 void AARPGPlayerController::StartWhirlwind()
@@ -860,6 +1115,14 @@ FVector AARPGPlayerController::GetCurrentDodgeDirection()
 
 void AARPGPlayerController::UpdateClickMoveMovement(float DeltaTime)
 {
+	if (bIsFrozen)
+	{
+		bHasClickMoveTarget = false;
+		ClickMoveTarget = FVector::ZeroVector;
+		StopARPGCharacterMovement();
+		return;
+	}
+
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
 	if (!ARPGCharacter)
 	{

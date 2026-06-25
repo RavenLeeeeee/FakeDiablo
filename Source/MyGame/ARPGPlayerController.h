@@ -41,6 +41,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Potion")
 	int32 GetManaPotionCount() const;
 
+	UFUNCTION(BlueprintCallable, Category="Movement")
+	void ApplyMoveSpeedSlow(float Multiplier, float Duration);
+
+	UFUNCTION(BlueprintCallable, Category="Status|Freeze")
+	void ApplyFreezeBuildup(float Amount);
+
+	UFUNCTION(BlueprintCallable, Category="Status|Freeze")
+	bool IsFrozen() const { return bIsFrozen; }
+
+	UFUNCTION(BlueprintCallable, Category="Status|Shock")
+	void ApplyShockBuildup(float Amount);
+
+	UFUNCTION(BlueprintCallable, Category="Status|Shock")
+	bool IsShocked() const { return bIsShocked; }
+
+	UFUNCTION(BlueprintCallable, Category="Status|Shock")
+	float GetDamageTakenMultiplier() const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
@@ -100,6 +118,24 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Whirlwind")
 	float WhirlwindHitInterval = 0.35f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Freeze")
+	float FreezeThreshold = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Freeze")
+	float FreezeDuration = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Shock")
+	float ShockThreshold = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Shock")
+	float ShockDuration = 5.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Shock")
+	float ShockDamageTakenMultiplier = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Testing")
+	float TemporaryPlayerMaxHealthForBossTesting = 10000.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PiercingSkill")
 	float PiercingSkillRange = 425.f;
 
@@ -151,6 +187,13 @@ private:
 	void HandleManaPotionPressed();
 	void StartEmpower();
 	void EndEmpower();
+	void ClearMoveSpeedSlow();
+	void UpdateMovementSpeedModifiers();
+	void StartFrozenState(float Duration);
+	void ClearFrozenState();
+	void StartShockedState(float Duration);
+	void ClearShockedState();
+	void ApplyTemporaryPlayerMaxHealthForBossTesting();
 	void StartWhirlwind();
 	void StopWhirlwind(const FString& Reason);
 	void HandleWhirlwindTick(float DeltaTime);
@@ -207,7 +250,21 @@ private:
 	bool bIsEmpowered = false;
 	float EmpowerEndTime = 0.f;
 	float LastEmpowerTime = -999.f;
-	float SavedEmpowerMaxWalkSpeed = 0.f;
+
+	bool bIsMoveSpeedSlowed = false;
+	float MoveSpeedSlowEndTime = 0.f;
+	float MoveSpeedSlowMultiplier = 1.0f;
+	float BaseNormalMaxWalkSpeed = 0.f;
+
+	float FreezeAccumulation = 0.f;
+	bool bIsFrozen = false;
+	float FrozenEndTime = 0.f;
+
+	float ShockAccumulation = 0.f;
+	bool bIsShocked = false;
+	float ShockEndTime = 0.f;
+
+	bool bHasAppliedTemporaryPlayerMaxHealth = false;
 
 	bool bIsWhirlwinding = false;
 	float LastWhirlwindHitTime = -999.f;

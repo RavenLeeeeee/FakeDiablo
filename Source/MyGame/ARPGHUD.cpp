@@ -202,6 +202,26 @@ void AARPGHUD::DrawBossHealth()
 		FColor::White,
 		BarX,
 		BarY - 24.f);
+
+	FString PhaseText = TEXT("Boss Phase: --");
+	if (BossEnemy->BossPhase == EARPGBossPhase::Phase1)
+	{
+		PhaseText = TEXT("Boss Phase: 1");
+	}
+	else if (BossEnemy->BossPhase == EARPGBossPhase::Phase2Transition)
+	{
+		PhaseText = TEXT("Boss Phase: Transition");
+	}
+	else if (BossEnemy->BossPhase == EARPGBossPhase::Phase2)
+	{
+		PhaseText = TEXT("Boss Phase: 2");
+	}
+	else if (BossEnemy->BossPhase == EARPGBossPhase::Phase3)
+	{
+		PhaseText = TEXT("Boss Phase: 3");
+	}
+
+	DrawText(PhaseText, FColor::White, BarX + BarWidth + 16.f, BarY - 2.f);
 	DrawRect(FLinearColor(0.08f, 0.08f, 0.08f, 0.85f), BarX, BarY, BarWidth, BarHeight);
 	DrawRect(FLinearColor(0.85f, 0.05f, 0.03f, 0.95f), BarX, BarY, BarWidth * HealthPercent, BarHeight);
 }

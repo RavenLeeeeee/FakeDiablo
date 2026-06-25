@@ -21,7 +21,13 @@ public:
 	void InitializeHealth(bool bForceReset = false);
 
 	UFUNCTION(BlueprintCallable, Category="Health")
+	void SetMaxHealth(float NewMaxHealth, bool bFillCurrentHealth);
+
+	UFUNCTION(BlueprintCallable, Category="Health")
 	void ApplyDamage(float DamageAmount);
+
+	UFUNCTION(BlueprintCallable, Category="Health")
+	void ApplyLethalDamageIgnoringInvincibility();
 
 	UFUNCTION(BlueprintCallable, Category="Health")
 	void RestoreHealth(float Amount);

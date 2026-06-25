@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ARPGHealthComponent.h"
+#include "ARPGPlayerController.h"
+#include "GameFramework/Pawn.h"
 #include "MyGame.h"
 
 UARPGHealthComponent::UARPGHealthComponent()
@@ -56,6 +58,32 @@ void UARPGHealthComponent::InitializeHealth(bool bForceReset)
 		MaxHealth);
 }
 
+void UARPGHealthComponent::SetMaxHealth(float NewMaxHealth, bool bFillCurrentHealth)
+{
+	AActor* OwnerActor = GetOwner();
+	const FString OwnerName = OwnerActor ? OwnerActor->GetName() : TEXT("UnknownOwner");
+	if (OwnerActor && (OwnerActor->IsTemplate() || OwnerName.StartsWith(TEXT("Default__"))))
+	{
+		UE_LOG(LogMyGame, Error, TEXT("%s Health max set skipped on class default object"), *OwnerName);
+		return;
+	}
+
+	MaxHealth = FMath::Max(1.f, NewMaxHealth);
+	if (bFillCurrentHealth)
+	{
+		CurrentHealth = MaxHealth;
+		bIsDead = false;
+	}
+	else
+	{
+		CurrentHealth = FMath::Clamp(CurrentHealth, 0.f, MaxHealth);
+		bIsDead = CurrentHealth <= 0.f;
+	}
+
+	bHealthInitialized = true;
+	UE_LOG(LogMyGame, Log, TEXT("Health max set: %s MaxHealth=%.1f"), *OwnerName, MaxHealth);
+}
+
 void UARPGHealthComponent::ApplyDamage(float DamageAmount)
 {
 	AActor* OwnerActor = GetOwner();
@@ -91,11 +119,57 @@ void UARPGHealthComponent::ApplyDamage(float DamageAmount)
 		return;
 	}
 
+	float FinalDamage = DamageAmount;
+	if (APawn* OwnerPawn = Cast<APawn>(OwnerActor))
+	{
+		if (AARPGPlayerController* ARPGPlayerController = Cast<AARPGPlayerController>(OwnerPawn->GetController()))
+		{
+			if (ARPGPlayerController->IsShocked())
+			{
+				FinalDamage *= ARPGPlayerController->GetDamageTakenMultiplier();
+				UE_LOG(LogMyGame, Warning, TEXT("Player shocked damage amplified: %.1f -> %.1f"), DamageAmount, FinalDamage);
+			}
+		}
+	}
+
 	const float OldHealth = CurrentHealth;
-	CurrentHealth = FMath::Max(0.f, CurrentHealth - DamageAmount);
+	CurrentHealth = FMath::Max(0.f, CurrentHealth - FinalDamage);
 	bIsDead = CurrentHealth <= 0.f;
 
-	UE_LOG(LogMyGame, Warning, TEXT("%s took %.1f damage, HP: %.1f -> %.1f / %.1f"), *OwnerName, DamageAmount, OldHealth, CurrentHealth, MaxHealth);
+	UE_LOG(LogMyGame, Warning, TEXT("%s took %.1f damage, HP: %.1f -> %.1f / %.1f"), *OwnerName, FinalDamage, OldHealth, CurrentHealth, MaxHealth);
+}
+
+void UARPGHealthComponent::ApplyLethalDamageIgnoringInvincibility()
+{
+	AActor* OwnerActor = GetOwner();
+	const FString OwnerName = OwnerActor ? OwnerActor->GetName() : TEXT("UnknownOwner");
+
+	if (OwnerActor && (OwnerActor->IsTemplate() || OwnerName.StartsWith(TEXT("Default__"))))
+	{
+		UE_LOG(LogMyGame, Error, TEXT("%s Do not apply runtime lethal damage to class default object"), *OwnerName);
+		return;
+	}
+
+	if (!bHealthInitialized)
+	{
+		InitializeHealth(false);
+	}
+
+	bIsDead = bHealthInitialized && CurrentHealth <= 0.f;
+	if (bIsDead)
+	{
+		return;
+	}
+
+	const float OldHealth = CurrentHealth;
+	CurrentHealth = 0.f;
+	bIsDead = true;
+
+	UE_LOG(LogMyGame, Warning, TEXT("%s lethal damage applied ignoring invincibility, HP: %.1f -> %.1f / %.1f"),
+		*OwnerName,
+		OldHealth,
+		CurrentHealth,
+		MaxHealth);
 }
 
 void UARPGHealthComponent::RestoreHealth(float Amount)
