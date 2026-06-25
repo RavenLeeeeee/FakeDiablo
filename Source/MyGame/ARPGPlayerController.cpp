@@ -2,9 +2,11 @@
 
 #include "ARPGPlayerController.h"
 #include "ARPGEnemyBase.h"
+#include "ARPGEquipmentPanelWidget.h"
 #include "ARPGHealthComponent.h"
 #include "ARPGManaComponent.h"
 #include "ARPGPlayerCharacter.h"
+#include "Blueprint/UserWidget.h"
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/HitResult.h"
@@ -13,6 +15,34 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputCoreTypes.h"
 #include "MyGame.h"
+
+namespace
+{
+FString EquipmentSlotLogName(EARPGEquipmentSlot Slot)
+{
+	switch (Slot)
+	{
+	case EARPGEquipmentSlot::Weapon:
+		return TEXT("Weapon");
+	case EARPGEquipmentSlot::Helmet:
+		return TEXT("Helmet");
+	case EARPGEquipmentSlot::Armor:
+		return TEXT("Armor");
+	case EARPGEquipmentSlot::Legs:
+		return TEXT("Legs");
+	case EARPGEquipmentSlot::Boots:
+		return TEXT("Boots");
+	case EARPGEquipmentSlot::Amulet:
+		return TEXT("Amulet");
+	case EARPGEquipmentSlot::Ring1:
+		return TEXT("Ring1");
+	case EARPGEquipmentSlot::Ring2:
+		return TEXT("Ring2");
+	default:
+		return TEXT("Unknown");
+	}
+}
+}
 
 AARPGPlayerController::AARPGPlayerController()
 {
@@ -29,12 +59,16 @@ void AARPGPlayerController::BeginPlay()
 	bEnableClickEvents = true;
 	bEnableMouseOverEvents = true;
 
-	FInputModeGameOnly InputMode;
-	InputMode.SetConsumeCaptureMouseDown(false);
+	FInputModeGameAndUI InputMode;
+	InputMode.SetHideCursorDuringCapture(false);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 	SetInputMode(InputMode);
+
+	UE_LOG(LogTemp, Warning, TEXT("PlayerController BeginPlay: mouse cursor enabled"));
 
 	UpdateMovementSpeedModifiers();
 	ApplyTemporaryPlayerMaxHealthForBossTesting();
+	InitializeDemoEquipmentInventory();
 }
 
 void AARPGPlayerController::SetupInputComponent()
@@ -49,6 +83,7 @@ void AARPGPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AARPGPlayerController::HandlePiercingSkillPressed);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AARPGPlayerController::HandleHealthPotionPressed);
 	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AARPGPlayerController::HandleManaPotionPressed);
+	InputComponent->BindKey(EKeys::I, IE_Pressed, this, &AARPGPlayerController::ToggleEquipmentPanel);
 
 	UE_LOG(LogMyGame, Log, TEXT("AARPGPlayerController SetupInputComponent"));
 }
@@ -230,6 +265,11 @@ FVector2D AARPGPlayerController::GetKeyboardMovementInput() const
 
 void AARPGPlayerController::HandleLeftClickPressed()
 {
+	if (bIsEquipmentPanelOpen)
+	{
+		return;
+	}
+
 	if (bIsFrozen)
 	{
 		return;
@@ -639,6 +679,305 @@ void AARPGPlayerController::HandleManaPotionPressed()
 	UE_LOG(LogMyGame, Log, TEXT("Used mana potion, remaining: %d"), ManaPotionCount);
 }
 
+void AARPGPlayerController::ToggleEquipmentPanel()
+{
+	UE_LOG(LogTemp, Warning, TEXT("ToggleEquipmentPanel called. bIsEquipmentPanelOpen=%s"), bIsEquipmentPanelOpen ? TEXT("true") : TEXT("false"));
+
+	if (bIsEquipmentPanelOpen)
+	{
+		HideEquipmentPanel();
+		return;
+	}
+
+	ShowEquipmentPanel();
+}
+
+void AARPGPlayerController::CreateEquipmentPanelIfNeeded()
+{
+	if (IsValid(EquipmentPanelWidget))
+	{
+		EquipmentPanelWidget->SetOwningARPGController(this);
+		return;
+	}
+
+	EquipmentPanelWidget = CreateWidget<UARPGEquipmentPanelWidget>(this, UARPGEquipmentPanelWidget::StaticClass());
+	if (EquipmentPanelWidget)
+	{
+		EquipmentPanelWidget->SetOwningARPGController(this);
+		UE_LOG(LogTemp, Warning, TEXT("Equipment panel widget created."));
+	}
+}
+
+void AARPGPlayerController::ShowEquipmentPanel()
+{
+	UE_LOG(LogTemp, Warning, TEXT("ShowEquipmentPanel called"));
+
+	CreateEquipmentPanelIfNeeded();
+	if (!EquipmentPanelWidget)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ShowEquipmentPanel failed: EquipmentPanelWidget is null after CreateWidget."));
+		return;
+	}
+
+	EquipmentPanelWidget->SetOwningARPGController(this);
+	EquipmentPanelWidget->EnsureBuiltOrRebuildPanel();
+
+	if (!EquipmentPanelWidget->IsInViewport())
+	{
+		EquipmentPanelWidget->AddToViewport(100);
+		UE_LOG(LogTemp, Warning, TEXT("Equipment panel AddToViewport called."));
+	}
+
+	EquipmentPanelWidget->SetVisibility(ESlateVisibility::Visible);
+	EquipmentPanelWidget->RefreshEquipmentPanel();
+
+	bIsEquipmentPanelOpen = true;
+	bShowMouseCursor = true;
+	bEnableClickEvents = true;
+	bEnableMouseOverEvents = true;
+	bHasClickMoveTarget = false;
+	ClickMoveTarget = FVector::ZeroVector;
+	StopARPGCharacterMovement();
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	InputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(InputMode);
+
+	UE_LOG(LogTemp, Warning, TEXT("Equipment panel opened."));
+}
+
+void AARPGPlayerController::HideEquipmentPanel()
+{
+	UE_LOG(LogTemp, Warning, TEXT("HideEquipmentPanel called"));
+
+	if (EquipmentPanelWidget)
+	{
+		EquipmentPanelWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (EquipmentPanelWidget && EquipmentPanelWidget->IsInViewport())
+	{
+		EquipmentPanelWidget->RemoveFromParent();
+	}
+
+	bIsEquipmentPanelOpen = false;
+	bShowMouseCursor = true;
+	bEnableClickEvents = true;
+	bEnableMouseOverEvents = true;
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetHideCursorDuringCapture(false);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	SetInputMode(InputMode);
+
+	UE_LOG(LogTemp, Warning, TEXT("Equipment panel closed."));
+}
+
+void AARPGPlayerController::InitializeDemoEquipmentInventory()
+{
+	if (bDemoInventoryInitialized)
+	{
+		return;
+	}
+
+	DemoInventoryItems.Empty();
+
+	FARPGSimpleEquipmentItem ShadowSword;
+	ShadowSword.ItemId = TEXT("ShadowSword");
+	ShadowSword.DisplayName = FText::FromString(TEXT("暗影长剑"));
+	ShadowSword.Slot = EARPGEquipmentSlot::Weapon;
+	ShadowSword.DamageMultiplierBonus = 0.3f;
+	DemoInventoryItems.Add(ShadowSword);
+
+	FARPGSimpleEquipmentItem RelicArmor;
+	RelicArmor.ItemId = TEXT("RelicArmor");
+	RelicArmor.DisplayName = FText::FromString(TEXT("遗迹战甲"));
+	RelicArmor.Slot = EARPGEquipmentSlot::Armor;
+	RelicArmor.MaxHealthBonus = 500.f;
+	DemoInventoryItems.Add(RelicArmor);
+
+	FARPGSimpleEquipmentItem SwiftBoots;
+	SwiftBoots.ItemId = TEXT("SwiftBoots");
+	SwiftBoots.DisplayName = FText::FromString(TEXT("疾行靴"));
+	SwiftBoots.Slot = EARPGEquipmentSlot::Boots;
+	SwiftBoots.MoveSpeedBonus = 100.f;
+	DemoInventoryItems.Add(SwiftBoots);
+
+	bDemoInventoryInitialized = true;
+}
+
+void AARPGPlayerController::EquipDemoInventoryItemByIndex(int32 ItemIndex)
+{
+	InitializeDemoEquipmentInventory();
+	if (!DemoInventoryItems.IsValidIndex(ItemIndex))
+	{
+		return;
+	}
+
+	EquipItem(DemoInventoryItems[ItemIndex]);
+}
+
+void AARPGPlayerController::ToggleEquipDemoInventoryItemByIndex(int32 ItemIndex)
+{
+	InitializeDemoEquipmentInventory();
+	if (!DemoInventoryItems.IsValidIndex(ItemIndex))
+	{
+		return;
+	}
+
+	const FARPGSimpleEquipmentItem& Item = DemoInventoryItems[ItemIndex];
+	if (IsItemEquipped(Item))
+	{
+		UnequipSlot(Item.Slot);
+		return;
+	}
+
+	EquipItem(Item);
+}
+
+void AARPGPlayerController::EquipItem(const FARPGSimpleEquipmentItem& Item)
+{
+	switch (Item.Slot)
+	{
+	case EARPGEquipmentSlot::Weapon:
+		EquippedWeapon = Item;
+		bHasEquippedWeapon = true;
+		break;
+	case EARPGEquipmentSlot::Armor:
+		EquippedArmor = Item;
+		bHasEquippedArmor = true;
+		break;
+	case EARPGEquipmentSlot::Boots:
+		EquippedBoots = Item;
+		bHasEquippedBoots = true;
+		break;
+	default:
+		return;
+	}
+
+	RecalculateEquipmentBonuses();
+	UE_LOG(LogMyGame, Log, TEXT("Equipped item: %s"), *Item.DisplayName.ToString());
+}
+
+void AARPGPlayerController::UnequipSlot(EARPGEquipmentSlot Slot)
+{
+	bool bUnequipped = false;
+
+	switch (Slot)
+	{
+	case EARPGEquipmentSlot::Weapon:
+		if (bHasEquippedWeapon)
+		{
+			EquippedWeapon = FARPGSimpleEquipmentItem();
+			bHasEquippedWeapon = false;
+			bUnequipped = true;
+		}
+		break;
+	case EARPGEquipmentSlot::Armor:
+		if (bHasEquippedArmor)
+		{
+			EquippedArmor = FARPGSimpleEquipmentItem();
+			bHasEquippedArmor = false;
+			bUnequipped = true;
+		}
+		break;
+	case EARPGEquipmentSlot::Boots:
+		if (bHasEquippedBoots)
+		{
+			EquippedBoots = FARPGSimpleEquipmentItem();
+			bHasEquippedBoots = false;
+			bUnequipped = true;
+		}
+		break;
+	default:
+		return;
+	}
+
+	if (!bUnequipped)
+	{
+		return;
+	}
+
+	RecalculateEquipmentBonuses();
+	UE_LOG(LogMyGame, Log, TEXT("Unequipped slot: %s"), *EquipmentSlotLogName(Slot));
+}
+
+bool AARPGPlayerController::IsItemEquipped(const FARPGSimpleEquipmentItem& Item) const
+{
+	if (Item.ItemId.IsNone())
+	{
+		return false;
+	}
+
+	switch (Item.Slot)
+	{
+	case EARPGEquipmentSlot::Weapon:
+		return bHasEquippedWeapon && EquippedWeapon.ItemId == Item.ItemId;
+	case EARPGEquipmentSlot::Armor:
+		return bHasEquippedArmor && EquippedArmor.ItemId == Item.ItemId;
+	case EARPGEquipmentSlot::Boots:
+		return bHasEquippedBoots && EquippedBoots.ItemId == Item.ItemId;
+	default:
+		return false;
+	}
+}
+
+void AARPGPlayerController::RecalculateEquipmentBonuses()
+{
+	float NewDamageMultiplierBonus = 0.f;
+	float NewMaxHealthBonus = 0.f;
+	float NewMoveSpeedBonus = 0.f;
+
+	if (bHasEquippedWeapon)
+	{
+		NewDamageMultiplierBonus += EquippedWeapon.DamageMultiplierBonus;
+	}
+
+	if (bHasEquippedArmor)
+	{
+		NewMaxHealthBonus += EquippedArmor.MaxHealthBonus;
+	}
+
+	if (bHasEquippedBoots)
+	{
+		NewMoveSpeedBonus += EquippedBoots.MoveSpeedBonus;
+	}
+
+	EquipmentDamageMultiplierBonus = NewDamageMultiplierBonus;
+	EquipmentMaxHealthBonus = NewMaxHealthBonus;
+	EquipmentMoveSpeedBonus = NewMoveSpeedBonus;
+
+	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
+	UARPGHealthComponent* HealthComponent = ARPGCharacter ? ARPGCharacter->GetHealthComponent() : nullptr;
+	if (HealthComponent)
+	{
+		const float DeltaMaxHealthBonus = EquipmentMaxHealthBonus - AppliedEquipmentMaxHealthBonus;
+		if (!FMath::IsNearlyZero(DeltaMaxHealthBonus))
+		{
+			const float NewMaxHealth = FMath::Max(1.f, HealthComponent->GetMaxHealth() + DeltaMaxHealthBonus);
+			HealthComponent->SetMaxHealth(NewMaxHealth, false);
+			if (DeltaMaxHealthBonus > 0.f)
+			{
+				HealthComponent->RestoreHealth(DeltaMaxHealthBonus);
+			}
+			AppliedEquipmentMaxHealthBonus = EquipmentMaxHealthBonus;
+		}
+	}
+
+	UpdateMovementSpeedModifiers();
+
+	UE_LOG(LogMyGame, Log, TEXT("Equipment bonuses recalculated: DamageMultiplier=%.1f, MaxHealthBonus=%.0f, MoveSpeedBonus=%.0f"),
+		GetEquipmentDamageMultiplier(),
+		EquipmentMaxHealthBonus,
+		EquipmentMoveSpeedBonus);
+}
+
+float AARPGPlayerController::GetEquipmentDamageMultiplier() const
+{
+	return 1.f + EquipmentDamageMultiplierBonus;
+}
+
 void AARPGPlayerController::StartEmpower()
 {
 	AARPGPlayerCharacter* ARPGCharacter = GetARPGCharacter();
@@ -855,6 +1194,11 @@ void AARPGPlayerController::ApplyTemporaryPlayerMaxHealthForBossTesting()
 
 	HealthComponent->SetMaxHealth(TemporaryPlayerMaxHealthForBossTesting, true);
 	bHasAppliedTemporaryPlayerMaxHealth = true;
+	if (bHasEquippedWeapon || bHasEquippedArmor || bHasEquippedBoots)
+	{
+		AppliedEquipmentMaxHealthBonus = 0.f;
+		RecalculateEquipmentBonuses();
+	}
 	UE_LOG(LogMyGame, Log, TEXT("Player max health set to 10000"));
 }
 
@@ -878,6 +1222,7 @@ void AARPGPlayerController::UpdateMovementSpeedModifiers()
 	}
 
 	float FinalSpeed = BaseNormalMaxWalkSpeed;
+	FinalSpeed += EquipmentMoveSpeedBonus;
 	if (bIsEmpowered)
 	{
 		FinalSpeed += EmpowerMoveSpeedBonus;
@@ -1013,7 +1358,7 @@ void AARPGPlayerController::PerformWhirlwindHit()
 		}
 
 		HitEnemies.Add(Enemy);
-		const float FinalDamage = bIsEmpowered ? WhirlwindDamage * EmpowerDamageMultiplier : WhirlwindDamage;
+		const float FinalDamage = (bIsEmpowered ? WhirlwindDamage * EmpowerDamageMultiplier : WhirlwindDamage) * GetEquipmentDamageMultiplier();
 		UE_LOG(LogMyGame, Log, TEXT("Whirlwind hit enemy: %s"), *Enemy->GetName());
 		Enemy->ReceiveAttackHit(FinalDamage);
 	}
@@ -1295,7 +1640,7 @@ void AARPGPlayerController::PerformBasicAttack()
 			HitEnemies.Add(Enemy);
 			DrawDebugSphere(GetWorld(), HitResult.ImpactPoint, 24.f, 12, FColor::Yellow, false, 1.f);
 			UE_LOG(LogMyGame, Log, TEXT("BasicAttack hit enemy: %s"), *Enemy->GetName());
-			const float FinalDamage = bIsEmpowered ? BasicAttackDamage * EmpowerDamageMultiplier : BasicAttackDamage;
+			const float FinalDamage = (bIsEmpowered ? BasicAttackDamage * EmpowerDamageMultiplier : BasicAttackDamage) * GetEquipmentDamageMultiplier();
 			UE_LOG(LogMyGame, Warning, TEXT("BasicAttack applying %.1f damage to enemy: %s"), FinalDamage, *Enemy->GetName());
 			Enemy->ReceiveAttackHit(FinalDamage);
 		}
@@ -1401,7 +1746,7 @@ void AARPGPlayerController::PerformAreaSkill(const FVector& AreaCenter)
 			HitEnemies.Add(Enemy);
 			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 28.f, 12, FColor::Yellow, false, 0.8f);
 			UE_LOG(LogMyGame, Log, TEXT("AreaSkill hit enemy: %s"), *Enemy->GetName());
-			const float FinalAreaDamage = bIsEmpowered ? AreaSkillDamage * EmpowerDamageMultiplier : AreaSkillDamage;
+			const float FinalAreaDamage = (bIsEmpowered ? AreaSkillDamage * EmpowerDamageMultiplier : AreaSkillDamage) * GetEquipmentDamageMultiplier();
 			Enemy->ReceiveAttackHit(FinalAreaDamage);
 		}
 	}
@@ -1491,7 +1836,7 @@ void AARPGPlayerController::PerformPiercingSkill(const FVector& Direction)
 			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 32.f, 12, FColor::Yellow, false, 0.8f);
 			UE_LOG(LogMyGame, Log, TEXT("PiercingSkill hit enemy: %s"), *Enemy->GetName());
 
-			const float FinalDamage = bIsEmpowered ? PiercingSkillDamage * EmpowerDamageMultiplier : PiercingSkillDamage;
+			const float FinalDamage = (bIsEmpowered ? PiercingSkillDamage * EmpowerDamageMultiplier : PiercingSkillDamage) * GetEquipmentDamageMultiplier();
 			const float FinalBleedDamage = bIsEmpowered ? BleedDamagePerTick * EmpowerDamageMultiplier : BleedDamagePerTick;
 			Enemy->ReceiveAttackHit(FinalDamage);
 			if (!Enemy->IsDead())

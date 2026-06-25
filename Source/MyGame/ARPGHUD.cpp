@@ -147,6 +147,108 @@ void AARPGHUD::DrawWhirlwindStatus(float X, float Y)
 		Y);
 }
 
+void AARPGHUD::DrawEquipmentPanel()
+{
+	const AARPGPlayerController* ARPGController = Cast<AARPGPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+	if (!ARPGController || !ARPGController->IsEquipmentPanelOpen())
+	{
+		return;
+	}
+
+	const float PanelWidth = 720.f;
+	const float PanelHeight = 390.f;
+	const float PanelX = (Canvas->SizeX - PanelWidth) * 0.5f;
+	const float PanelY = (Canvas->SizeY - PanelHeight) * 0.5f;
+	DrawRect(FLinearColor(0.02f, 0.02f, 0.025f, 0.88f), PanelX, PanelY, PanelWidth, PanelHeight);
+	DrawRect(FLinearColor(0.14f, 0.14f, 0.16f, 0.95f), PanelX, PanelY, PanelWidth, 2.f);
+	DrawRect(FLinearColor(0.14f, 0.14f, 0.16f, 0.95f), PanelX, PanelY + PanelHeight - 2.f, PanelWidth, 2.f);
+	DrawRect(FLinearColor(0.14f, 0.14f, 0.16f, 0.95f), PanelX, PanelY, 2.f, PanelHeight);
+	DrawRect(FLinearColor(0.14f, 0.14f, 0.16f, 0.95f), PanelX + PanelWidth - 2.f, PanelY, 2.f, PanelHeight);
+
+	const auto SlotToText = [](EARPGEquipmentSlot Slot) -> FString
+	{
+		switch (Slot)
+		{
+		case EARPGEquipmentSlot::Weapon:
+			return TEXT("武器");
+		case EARPGEquipmentSlot::Helmet:
+			return TEXT("头盔");
+		case EARPGEquipmentSlot::Armor:
+			return TEXT("护甲");
+		case EARPGEquipmentSlot::Legs:
+			return TEXT("腿甲");
+		case EARPGEquipmentSlot::Boots:
+			return TEXT("鞋子");
+		case EARPGEquipmentSlot::Amulet:
+			return TEXT("项链");
+		case EARPGEquipmentSlot::Ring1:
+			return TEXT("戒指 1");
+		case EARPGEquipmentSlot::Ring2:
+			return TEXT("戒指 2");
+		default:
+			return TEXT("--");
+		}
+	};
+
+	const auto BonusToText = [](const FARPGSimpleEquipmentItem& Item) -> FString
+	{
+		if (Item.DamageMultiplierBonus > 0.f)
+		{
+			return FString::Printf(TEXT("伤害 +%.0f%%"), Item.DamageMultiplierBonus * 100.f);
+		}
+		if (Item.MaxHealthBonus > 0.f)
+		{
+			return FString::Printf(TEXT("生命 +%.0f"), Item.MaxHealthBonus);
+		}
+		if (Item.MoveSpeedBonus > 0.f)
+		{
+			return FString::Printf(TEXT("移速 +%.0f"), Item.MoveSpeedBonus);
+		}
+		return TEXT("");
+	};
+
+	const float LeftX = PanelX + 30.f;
+	const float RightX = PanelX + 390.f;
+	float RowY = PanelY + 36.f;
+
+	DrawText(TEXT("背包"), FColor::White, LeftX, RowY);
+	DrawText(TEXT("装备栏"), FColor::White, RightX, RowY);
+	RowY += 34.f;
+
+	const TArray<FARPGSimpleEquipmentItem>& Items = ARPGController->GetDemoInventoryItems();
+	for (int32 Index = 0; Index < Items.Num(); ++Index)
+	{
+		const FARPGSimpleEquipmentItem& Item = Items[Index];
+		const FString ItemLine = FString::Printf(TEXT("[%d] %s  %s  %s"),
+			Index,
+			*Item.DisplayName.ToString(),
+			*SlotToText(Item.Slot),
+			*BonusToText(Item));
+		DrawText(ItemLine, FColor::White, LeftX, RowY + Index * 30.f);
+	}
+
+	const FString WeaponName = ARPGController->HasEquippedWeapon()
+		? ARPGController->GetEquippedWeapon().DisplayName.ToString()
+		: TEXT("Empty");
+	const FString ArmorName = ARPGController->HasEquippedArmor()
+		? ARPGController->GetEquippedArmor().DisplayName.ToString()
+		: TEXT("Empty");
+	const FString BootsName = ARPGController->HasEquippedBoots()
+		? ARPGController->GetEquippedBoots().DisplayName.ToString()
+		: TEXT("Empty");
+
+	DrawText(FString::Printf(TEXT("Weapon: %s"), *WeaponName), FColor::White, RightX, RowY);
+	DrawText(TEXT("Helmet: Empty"), FColor::White, RightX, RowY + 28.f);
+	DrawText(FString::Printf(TEXT("Armor: %s"), *ArmorName), FColor::White, RightX, RowY + 56.f);
+	DrawText(TEXT("Legs: Empty"), FColor::White, RightX, RowY + 84.f);
+	DrawText(FString::Printf(TEXT("Boots: %s"), *BootsName), FColor::White, RightX, RowY + 112.f);
+	DrawText(TEXT("Amulet: Empty"), FColor::White, RightX, RowY + 140.f);
+	DrawText(TEXT("Ring 1: Empty"), FColor::White, RightX, RowY + 168.f);
+	DrawText(TEXT("Ring 2: Empty"), FColor::White, RightX, RowY + 196.f);
+
+	DrawText(TEXT("按数字键 1/2/3 装备对应物品"), FColor::Yellow, LeftX, PanelY + PanelHeight - 42.f);
+}
+
 void AARPGHUD::DrawBossHealth()
 {
 	TArray<AActor*> EnemyActors;

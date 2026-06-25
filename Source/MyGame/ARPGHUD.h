@@ -21,6 +21,7 @@ private:
 	void DrawManaStatus(float X, float Y);
 	void DrawPotionStatus(float X, float Y);
 	void DrawWhirlwindStatus(float X, float Y);
+	void DrawEquipmentPanel();
 	void DrawBossHealth();
 	void DrawCenterMessage();
 };

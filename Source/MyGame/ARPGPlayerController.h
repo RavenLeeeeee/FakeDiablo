@@ -3,11 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ARPGBasicEquipmentTypes.h"
 #include "GameFramework/PlayerController.h"
 #include "ARPGPlayerController.generated.h"
 
 class AARPGPlayerCharacter;
 class UARPGManaComponent;
+class UARPGEquipmentPanelWidget;
 
 /**
  * Minimal top-down ARPG player controller prototype.
@@ -58,6 +60,42 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Status|Shock")
 	float GetDamageTakenMultiplier() const;
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	void EquipDemoInventoryItemByIndex(int32 ItemIndex);
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	void ToggleEquipDemoInventoryItemByIndex(int32 ItemIndex);
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	void UnequipSlot(EARPGEquipmentSlot Slot);
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	bool IsItemEquipped(const FARPGSimpleEquipmentItem& Item) const;
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	float GetEquipmentDamageMultiplier() const;
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	bool IsEquipmentPanelOpen() const { return bIsEquipmentPanelOpen; }
+
+	const TArray<FARPGSimpleEquipmentItem>& GetDemoInventoryItems() const { return DemoInventoryItems; }
+	bool HasEquippedWeapon() const { return bHasEquippedWeapon; }
+	bool HasEquippedHelmet() const { return bHasEquippedHelmet; }
+	bool HasEquippedArmor() const { return bHasEquippedArmor; }
+	bool HasEquippedLegs() const { return bHasEquippedLegs; }
+	bool HasEquippedBoots() const { return bHasEquippedBoots; }
+	bool HasEquippedAmulet() const { return bHasEquippedAmulet; }
+	bool HasEquippedRing1() const { return bHasEquippedRing1; }
+	bool HasEquippedRing2() const { return bHasEquippedRing2; }
+	const FARPGSimpleEquipmentItem& GetEquippedWeapon() const { return EquippedWeapon; }
+	const FARPGSimpleEquipmentItem& GetEquippedHelmet() const { return EquippedHelmet; }
+	const FARPGSimpleEquipmentItem& GetEquippedArmor() const { return EquippedArmor; }
+	const FARPGSimpleEquipmentItem& GetEquippedLegs() const { return EquippedLegs; }
+	const FARPGSimpleEquipmentItem& GetEquippedBoots() const { return EquippedBoots; }
+	const FARPGSimpleEquipmentItem& GetEquippedAmulet() const { return EquippedAmulet; }
+	const FARPGSimpleEquipmentItem& GetEquippedRing1() const { return EquippedRing1; }
+	const FARPGSimpleEquipmentItem& GetEquippedRing2() const { return EquippedRing2; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -175,6 +213,30 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Potion")
 	float ManaPotionRestorePercent = 0.5f;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedWeapon;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedHelmet;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedArmor;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedLegs;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedBoots;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedAmulet;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedRing1;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	FARPGSimpleEquipmentItem EquippedRing2;
+
 private:
 	FVector2D GetKeyboardMovementInput() const;
 	void HandleLeftClickPressed();
@@ -185,6 +247,13 @@ private:
 	void HandlePiercingSkillPressed();
 	void HandleHealthPotionPressed();
 	void HandleManaPotionPressed();
+	void ToggleEquipmentPanel();
+	void CreateEquipmentPanelIfNeeded();
+	void ShowEquipmentPanel();
+	void HideEquipmentPanel();
+	void InitializeDemoEquipmentInventory();
+	void EquipItem(const FARPGSimpleEquipmentItem& Item);
+	void RecalculateEquipmentBonuses();
 	void StartEmpower();
 	void EndEmpower();
 	void ClearMoveSpeedSlow();
@@ -255,6 +324,25 @@ private:
 	float MoveSpeedSlowEndTime = 0.f;
 	float MoveSpeedSlowMultiplier = 1.0f;
 	float BaseNormalMaxWalkSpeed = 0.f;
+
+	TArray<FARPGSimpleEquipmentItem> DemoInventoryItems;
+	bool bHasEquippedWeapon = false;
+	bool bHasEquippedHelmet = false;
+	bool bHasEquippedArmor = false;
+	bool bHasEquippedLegs = false;
+	bool bHasEquippedBoots = false;
+	bool bHasEquippedAmulet = false;
+	bool bHasEquippedRing1 = false;
+	bool bHasEquippedRing2 = false;
+	float EquipmentDamageMultiplierBonus = 0.f;
+	float EquipmentMaxHealthBonus = 0.f;
+	float AppliedEquipmentMaxHealthBonus = 0.f;
+	float EquipmentMoveSpeedBonus = 0.f;
+	bool bIsEquipmentPanelOpen = false;
+	bool bDemoInventoryInitialized = false;
+
+	UPROPERTY()
+	TObjectPtr<UARPGEquipmentPanelWidget> EquipmentPanelWidget;
 
 	float FreezeAccumulation = 0.f;
 	bool bIsFrozen = false;
